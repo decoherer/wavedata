@@ -3,4 +3,4 @@ wavedata.egg-info
 .ipynb_checkpoints
 wavenp.py
 tmp.dat
-*.png
+/*.png
