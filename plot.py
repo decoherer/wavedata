@@ -2,6 +2,7 @@
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontProperties
 import multiprocessing
 disablepause = 0
 noshow = 0
@@ -47,7 +48,7 @@ def markerlist(waves,m):
     m = [w.m if (hasattr(w,'m') and w.m is not None) else m[n%len(m)] for n,w in enumerate(waves)]
     m = list(map(lambda c,d=replacements:d[c] if c in d else c, m))
     return m
-def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,lines=[],texts=[],
+def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=False,lines=[],texts=[],
         m='',l=0,c=None,mf=1,li=1,ms=4,lw=1.5,mew=None,
         fill=False,g=None,seed=None,showseed=False,
         x=None,y=None,xlabel=None,ylabel=None,xlim=(None,None),ylim=(None,None),
@@ -89,7 +90,7 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,lines=[],
 
     # matplotlib.use('Qt5Cairo') # plt.rcParams['backend'] = 'Qt5Cairo'
     plt.rcParams['keymap.quit'] = ['ctrl+w','cmd+w','q','escape']
-    plt.rcParams['font.sans-serif'] = plt.rcParams['font.family'] = kwargs.pop('font') if 'font' in kwargs else 'Arial' # 'Helvetica' # 'Geneva'
+    plt.rcParams['font.sans-serif'] = plt.rcParams['font.family'] = kwargs.pop('font') if 'font' in kwargs else FontProperties(fname='c:/windows/fonts/arialuni.ttf').get_name() # 'Arial' # 'DejaVu Sans'
     # print('font.sans-serif',matplotlib.rcParams['font.sans-serif'],'font.family',matplotlib.rcParams['font.family'])
     # plt.rcParams['axes.facecolor']=plt.rcParams['savefig.facecolor']=plt.rcParams['figure.facecolor']='white'; # plt.rc('font',family='Arial'); 
     plt.style.use('seaborn-deep'); plt.rcParams['font.size'] = kwargs.pop('fontsize') if 'fontsize' in kwargs else 12
@@ -116,6 +117,8 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,lines=[],
         plt.contourf(*xxyyzz(contourf),levels=levellist(contourf.array()) if levels is None else levels)
     for text in texts: # https://matplotlib.org/3.1.1/api/_as_gen/matplotlib.pyplot.text.html
         plt.text(**text) # e.g. texts = [{'x':0,'y':1,'s':'test'}] # text(x, y, s, bbox=dict(facecolor='red', alpha=0.5)) # text(0.5, 0.5, 'matplotlib', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+    if colorbar:
+        plt.colorbar()
 
     # plot waves
     waves = sorted(waves,key=lambda w:-w.mean()) if sort else waves
@@ -269,13 +272,15 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,lines=[],
             print(f" ({event.xdata:g},{event.ydata:g})")
         cid = plt.gcf().canvas.mpl_connect('button_press_event', onclick)
 
-    import os
+    import os,time
     savefolder = savefolder if os.path.isdir(savefolder) else '.'
     if save:
         savename = save.replace('.png','')
         savefile = savefolder.rstrip('/')+'/'+savename+'.png'
         plt.savefig(savefile, bbox_inches='tight',dpi=300)
         # add_custom_watermark(savefile,savename,overwrite=True)
+        # time.sleep(2)
+        # os.utime(savefile, (time.time(), time.time()))
     else:
         savefile = savefolder.rstrip('/')+'/out.png'
         plt.savefig(savefile, bbox_inches='tight',dpi=300)

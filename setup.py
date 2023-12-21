@@ -7,8 +7,8 @@ setup(
     # Additional metadata (optional but recommended)
     author="decoherer",
     author_email="63128649+decoherer@users.noreply.github.com",
-    # description="A brief description of the wavedata package",
-    # url="http://url-to-project-homepage.com",
+    description="Tools for processing waveform-like data such as time series or xy data. Perform common scientific operations on xy data using numpy. Store, analyze, transform, and display xy data.",
+    url="https://github.com/decoherer/wavedata",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

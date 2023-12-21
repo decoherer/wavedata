@@ -427,6 +427,13 @@ def gausscurvefit(xs,ys,plot=False,x0=None,sdev=None):
         plt.show() #plt.savefig('h12.png') #if plot: os.startfile('h12.png')
     #print('guess:',p0,'fit:',p,'sdev:',psdev)
     return height,floor,fwhm,x0
+def discretedeltafunction(x,x0,dx): # constant area=1
+    return np.maximum(0,1-np.abs((x-x0)/dx))/dx
+def nptophat(x,x0,x1):
+    return np.heaviside(x-x0,0.5)-np.heaviside(x-x1,0.5)
+def tophat(x,x0,x1,dx): # guaranteed constant area=x1-x0 on dx spaced grid
+    tri = 0.5 + 0.5*(x1-x0)/dx - np.abs(x-0.5*(x0+x1))/dx
+    return np.maximum(0,np.minimum(1,tri))
 def sinc(x):
     return np.sinc(x/np.pi)
 def sincsqr(x,*p):
@@ -502,6 +509,32 @@ def curvefit(xs,ys,fitfunc,guess,fix=None,maxfev=0,debug=False):
     q,qcov = curve_fit(f, xs, ys, p0=q0, maxfev=maxfev)
     # psdev = np.sqrt(np.diag(qcov))
     return fullcoef(q)
+def gaussianproduct(θ0,σ0,ρ0,θ1,σ1,ρ1,degrees=False):
+    # product of exp(-x²/σ0²)exp(-y²/ρ0²) rotated by θ0 with exp(-x²/σ1²)exp(-y²/ρ1²) rotated by θ1, returns resulting θ,σ,ρ 
+    def abc(θ,σ,ρ): # https://en.wikipedia.org/wiki/Gaussian_function#Meaning_of_parameters_for_the_general_equation
+        a = 0.5*cos(θ)**2/σ**2 + 0.5*sin(θ)**2/ρ**2
+        b = 0.25*sin(2*θ)/ρ**2 - 0.25*sin(2*θ)/σ**2
+        c = 0.5*sin(θ)**2/σ**2 + 0.5*cos(θ)**2/ρ**2
+        return (a,b,c)
+    def θσρ(a,b,c):
+        θ = 0.5*np.arctan2(2*b,a-c)
+        assert -pi/2<=θ<=+pi/2, f"b{b:g} a-c{a-c:g} θ{θ:g}"
+        # print(f"b:{b:g} a-c:{a-c:g} θ:{θ:g}")
+        σ = np.sqrt(0.5/(a*cos(θ)**2 + 2*b*cos(θ)*sin(θ) + c*sin(θ)**2))
+        ρ = np.sqrt(0.5/(a*sin(θ)**2 - 2*b*cos(θ)*sin(θ) + c*cos(θ)**2))
+        # return (θ,σ,ρ)
+        return normalize(θ,σ,ρ)
+    def normalize(θ,σ,ρ):
+        def θnorm(θ): # restrict to ±π, e.g. 135° → -45°
+            return (θ+0.5*pi)%pi - 0.5*pi
+        θ,σ,ρ = np.where(σ>ρ,(θnorm(θ),σ,ρ),(θnorm(θ+0.5*pi),ρ,σ))
+        # θ,σ,ρ = np.where(np.allclose(σ,ρ)&(np.abs(θ)>=0.25*pi),(θnorm(θ+0.5*pi),ρ,σ),(θnorm(θ),σ,ρ))
+        θ,σ,ρ = np.where(np.allclose(σ,ρ),(0,σ,σ),(θnorm(θ),σ,ρ))
+        return θ,σ,ρ
+    θ0,θ1 = (θ0*pi/180,θ1*pi/180) if degrees else (θ0,θ1)
+    (a0,b0,c0),(a1,b1,c1) = abc(θ0,σ0,ρ0),abc(θ1,σ1,ρ1)
+    θ,σ,ρ = θσρ(a0+a1,b0+b1,c0+c1)
+    return (θ*180/pi if degrees else θ),σ,ρ
 def trapezoidintegrate(ys,xs,invfunc=False,returnarray=False):
     # returns function f(x) that gives the exact trapezoidal integral area
     # by definition, f(x<xs[0])==0 and f(xs[-1]<x)==total area

@@ -278,6 +278,8 @@ class Wave(pd.Series):
         return np.std(deltas)/np.sqrt(2)
     def monotony(self):
         return self.mean()/self.sdev()
+    def len(self):
+        return len(self)
     def pmax(self):
         return self.values.argmax()
     def pmin(self):
@@ -290,6 +292,9 @@ class Wave(pd.Series):
         return self[self.pmax():self.pmax()+1] if aswave else self.xmax()
     def minloc(self,aswave=False):
         return self[self.pmin():self.pmin()+1] if aswave else self.xmin()
+    def quadmaxlocplot(self,edgemax=False):
+        w = self.quadmaxloc(aswave=1,edgemax=edgemax).setplot(m='o')
+        return Wave.plots(self,w,c='00')
     def quadmaxloc(self,aswave=False,edgemax=False):
         p = self.pmax()
         assert edgemax or    0<p<len(self)-1
@@ -460,9 +465,7 @@ class Wave(pd.Series):
         n0 = (n-len(self.index))//2 # length of front padding
         # n1 = n-len(self.index)-n0 # length of end padding
         wx = (np.arange(0,n)-n0)*self.dx() + self.index[0]
-        # print(self.dtype)
         w = np.zeros_like(wx,dtype=self.dtype)
-        # print(w.dtype)
         w[n0:n0+len(self)] = self
         return Wave(w,wx)
     def oldfft(self,pad=True):
@@ -473,7 +476,7 @@ class Wave(pd.Series):
         # return Wave(f*f.conjugate(),fx)
         return Wave(f.real**2 + f.imag**2, fx)
         # return Wave(abs(f), fx)
-    def fft(self,plot=0):
+    def fft(self,plot=0): # returns fft where x axis is frequency, i.e. df=1/dx
         # assert len(self)<1e5, 'Wave too long for fft (can use too much ram in 64 bit python and lock up the machine)'
         yy,x0,dx,df = self.y,self.x[0],self.dx(),1/self.dx()
         ff = np.fft.fftshift(np.fft.fftfreq(yy.size)) * df
@@ -484,6 +487,10 @@ class Wave(pd.Series):
         return w
     def ft(self,f,*args,**kwargs): # 5800x slower than fft()
         return fourierintegral(self,self.x,f,*args,**kwargs) # exact fourier integral of piecewise linear function
+    def ftwave(self,fs,*args,**kwargs):
+        return Wave(self.ft(fs),fs)
+    def sqr(self):
+        return self**2
     def magsqr(self):
         return Wave(self.y.real**2 + self.y.imag**2,self.x)
     def real(self):
@@ -758,9 +765,16 @@ class Wave(pd.Series):
         hist,binedges = np.histogram(self.y[~np.isnan(self.y)],bins=bins)
         histx = (binedges[:-1]+binedges[1:])/2.
         return Wave(hist,histx)
-    def countpeaks(self):
+    def getpeaks(self,mins=False):
         a = np.array(self)
-        return np.sum( (a[:-2]<a[1:-1]) * (a[2:]<a[1:-1]) )
+        m = ( (a[:-2]>a[1:-1])*(a[2:]>a[1:-1]) if mins else 
+              (a[:-2]<a[1:-1])*(a[2:]<a[1:-1]) )
+        # return Wave([0]+list(m)+[0],self.x) # 1 at peaks, 0 elsewhere
+        return np.array([x for x,y in zip(self.x[1:-1],m) if 1==y])
+    def countpeaks(self,mins=False):
+        return np.sum(self.getpeaks())
+        # a = np.array(self)
+        # return np.sum( (a[:-2]<a[1:-1]) * (a[2:]<a[1:-1]) )
     def curvefit(self,fitfunc,x0=None,x1=None,coef=2):
         from scipy.optimize import curve_fit
         cc = curve_fit(fitfunc, self.x, self.y)[0]
@@ -951,6 +965,12 @@ class Wave(pd.Series):
     def removeclosestpoints(self,ps):
         return self if 0==len(ps) else self.removeclosestpoint(ps[0]).removeclosestpoints(ps[1:])
     @staticmethod
+    def zeros(xs,*args,**kwargs):
+        return 0*Wave(xs,xs,*args,**kwargs)
+    @staticmethod
+    def ones(xs,*args,**kwargs):
+        return 1+0*Wave(xs,xs,*args,**kwargs)
+    @staticmethod
     def fromxsandys(xs,ys,*args,**kwargs):
         return Wave(ys,xs,*args,**kwargs)
     @staticmethod
@@ -962,7 +982,7 @@ class Wave(pd.Series):
         xs,ys = zip(*xys)
         return Wave(ys,xs)
     @staticmethod
-    def sum(*ws,extrapolate='lin'):
+    def wavesum(*ws,extrapolate='lin'):
         ws = ws[0] if isinstance(ws[0],(list,tuple)) else ws
         w0 = ws[0].copy()
         for w in ws[1:]:

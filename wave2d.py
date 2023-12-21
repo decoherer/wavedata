@@ -6,6 +6,24 @@ import scipy
 from waveclass import Wave
 
 class Wave2D(np.ndarray):
+    def __new__(cls,array=None,xs=None,ys=None):
+        array = np.array(array) if isinstance(array,(list,tuple)) else array
+        if xs is not None and ys is not None:
+            nx,ny = len(xs),len(ys)
+            if array is not None:
+                if array.size==nx*ny:
+                    array = array.reshape((nx,ny))
+                assert (nx,ny)==array.shape, f'input array must have size (nx,ny), array:{array} nx,ny:{nx,ny} '
+        else:
+            nx,ny = array.shape
+            xs,ys = np.linspace(0,nx-1,nx),np.linspace(0,ny-1,ny)
+        if array is not None:
+            obj = np.asarray(array).view(cls)
+        else:
+            obj = np.zeros((nx,ny)).view(cls)
+        obj.xs,obj.ys = np.asarray(xs,dtype=float),np.asarray(ys,dtype=float)
+        obj.nx,obj.ny = obj.shape
+        return obj
     @classmethod
     def fromtif(cls,filename,transpose=False):
         from PIL import Image
@@ -29,25 +47,6 @@ class Wave2D(np.ndarray):
         data = np.dot(asarray(image)[...,:3], rgbweights)
         # data = asarray(image)
         return Wave2D(data).transpose() if transpose else Wave2D(data)
-    def __new__(cls,array=None,xs=None,ys=None):
-        array = np.array(array) if isinstance(array,(list,tuple)) else array
-        if xs is not None and ys is not None:
-            nx,ny = len(xs),len(ys)
-            if array is not None:
-                if array.size==nx*ny:
-                    array = array.reshape((nx,ny))
-                assert (nx,ny)==array.shape, f'input array must have size (nx,ny), array:{array} nx,ny:{nx,ny} '
-        else:
-            nx,ny = array.shape
-            xs,ys = np.linspace(0,nx-1,nx),np.linspace(0,ny-1,ny)
-        if array is not None:
-            # obj = np.asarray(array,dtype=float).view(cls)
-            obj = np.asarray(array).view(cls)
-        else:
-            obj = np.zeros((nx,ny)).view(cls)
-        obj.xs,obj.ys = np.asarray(xs,dtype=float),np.asarray(ys,dtype=float)
-        obj.nx,obj.ny = obj.shape
-        return obj
     # def __array_finalize__(self, obj):
     #     if obj is None: return
     #     self.xs,self.ys = getattr(obj, 'xs', None),getattr(obj, 'ys', None)
@@ -160,6 +159,10 @@ class Wave2D(np.ndarray):
         return Wave(self.sum(axis=0),index=self.ys)
     def ysum(self):
         return Wave(self.sum(axis=1),index=self.xs)
+    def xlen(self):
+        return len(self.xs)
+    def ylen(self):
+        return len(self.ys)
     def xsubrange(self,xlim=(-inf,inf)):
         # if xlim is None: return self
         i0,i1 = [self.x2p(x,nearest=True) for x in xlim] # print('xlim',*xlim,'i0,i1',i0,i1)
@@ -387,9 +390,25 @@ class Wave2D(np.ndarray):
         return self.magsqr()
     def magsqr(self):
         return Wave2D(self.real()**2 + self.imag()**2,xs=self.xs,ys=self.ys)
-    def indistiguishability(self): # https://arxiv.org/abs/2107.08070 Eq. 10
-        assert np.allclose(self.xs,self.ys)
+    def schmidtnumber(self,res=400,keep=None,invspace=False):
+        modes = [m for m,f,g in self.schmidtdecomposition(res=res,keep=keep,invspace=invspace)]
+        return 1/sum([np.abs(m)**4 for m in modes])
+    def schmidtdecomposition(ww,res=400,keep=None,invspace=False):
+        import pyqentangle # don't use pyqentangle==3.1.7 (3.1.0 is ok)
+        f,x0,x1,y0,y1 = ww, ww.xs[0], ww.xs[-1], ww.ys[0], ww.ys[-1]
+        if invspace: f,x0,x1,y0,y1 = lambda x,y:ww(1/x,1/y), 1/ww.xs[-1], 1/ww.xs[0], 1/ww.ys[-1], 1/ww.ys[0]
+        return pyqentangle.continuous_schmidt_decomposition(f,x0,x1,y0,y1, nb_x1=res, nb_x2=res, keep=keep)
+    def indistinguishability(self): # https://arxiv.org/abs/2107.08070 Eq. 10
+        if not np.allclose(self.xs,self.ys):
+            return np.nan
         return np.sum(self * self.transpose().conj())/np.sum(self * self)
+    def integrate(f,g): # computes ∫ f(x,y) g(y,z) dy
+        assert f.dy==g.dx and np.allclose(f.ys,g.xs)
+        return Wave2D(g.dx * np.array(f) @ np.array(g),xs=f.xs,ys=g.ys)
+    def __matmul__(self,w):
+        if isinstance(w,Wave2D):
+            return self.integrate(w)
+        return self @ w
     def overlap(self,ww):
         # overlap integral of both assuming they are e-fields
         assert (np.allclose(self.limits,ww.limits,rtol=1e-50) and 
@@ -418,7 +437,7 @@ class Wave2D(np.ndarray):
             cy = np.interp(contour[:,1],py,self.ys)
             return Wave(cy,cx)
         def contours2contour(contours): # convert to a single contour separated by nans
-            c = contours[0]
+            c = contours[0] if contours else np.array([[nan,nan]])
             for contour in contours[1:]:
                 c = np.concatenate((c,[[nan,nan]],contour))
             return c

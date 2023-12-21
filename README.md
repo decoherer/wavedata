@@ -75,7 +75,7 @@ plot(waves=[a.rename('a'),b.rename('b'),c.rename('c')],m='o',grid=1,xlabel='s',y
 
 
 
-## Auto-generated Wave Class usage examples
+## Auto-generated Wave class usage examples
 
 ### 1. Using `maxloc`
 
@@ -84,7 +84,7 @@ The `maxloc` method identifies the location of the maximum value in the wave dat
 ```python
 from wavedata import Wave
 
-wave = Wave([1, 3, 2, 5, 4], [0, 1, 2, 3, 4])
+wave = Wave([1, 3, 4, 5, 4, 0], [0, 2, 3, 4, 6, 7])
 max_location = wave.maxloc()
 print("Location of maximum value:", max_location)
 ```
