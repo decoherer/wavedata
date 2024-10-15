@@ -1,8 +1,12 @@
-
 import pandas as pd
 import numpy as np
 from numpy import sqrt,pi,nan,inf,sign,exp,log,sin,cos,floor,ceil
 
+def supresserror(f,default=None):
+    try:
+        return f()
+    except Exception:
+        return default
 class Vec(pd.Series):
     """
     Extends pandas Series to apply methods to each element using dot notation.
@@ -20,6 +24,67 @@ class Vec(pd.Series):
     #     return method
     def __getattr__(self, name):
         return lambda *args, **kwargs: Vec([getattr(item, name)(*args, **kwargs) if hasattr(item, name) else getattr(np, name)(item, *args, **kwargs) if hasattr(np, name) else globals()[name](item, *args, **kwargs) for item in self])
+def maplistargs(func):
+    # given f(a,b,c), check if a, b, or c is a list and if so return a list of results, one for each element
+    # e.g. maplistargs(f)(a=[0,1,2],b=8,c=[10,11,12]) returns [f(0,8,10),f(1,8,11),f(2,8,12)]
+    def wrapper(*args, **kwargs):
+        # Combine args and kwargs into a single dictionary for easier processing
+        arg_names = func.__code__.co_varnames[:func.__code__.co_argcount]
+        call_args = dict(zip(arg_names, args))
+        call_args.update(kwargs)
+        list_args = {k: v for k, v in call_args.items() if isinstance(v, list)}
+        if not list_args:  # No list arguments, call the function directly
+            return func(*args, **kwargs)
+        list_length = None
+        for arg in list_args.values():
+            if list_length is None:
+                list_length = len(arg)
+            elif len(arg) != list_length:
+                raise ValueError("All list arguments must have the same length.")
+        results = []
+        for i in range(list_length):
+            current_args = {k: (v[i] if k in list_args else v) for k, v in call_args.items()}
+            results.append(func(**current_args))
+        return results
+    return wrapper
+
+# def maplistargs(func):
+#     # given f(a,b,c), check if a, b, or c is a list and if so return a list of results, one for each element
+#     # e.g. maplistargs(f)(a=[0,1,2],b=8,c=[10,11,12]) returns [f(0,8,10),f(1,8,11),f(2,8,12)]
+#     def wrapper(*args):
+#         print('args',args)
+#         list_args = [isinstance(arg, list) for arg in args]
+#         if any(list_args):
+#             results = []
+#             list_length = None
+#             for arg in args:
+#                 if isinstance(arg, list):
+#                     if list_length is None:
+#                         list_length = len(arg)
+#                     elif len(arg) != list_length:
+#                         raise ValueError("All list arguments must have the same length.")
+#             for i in range(list_length):
+#                 current_args = [arg[i] if isinstance(arg, list) else arg for arg in args]
+#                 results.append(func(*current_args))
+#             return results
+#         else:
+#             return func(*args)
+#     return wrapper
+def storecallargs(func):
+    # Captures all positional and keyword arguments passed to the decorated function.
+    # Stores these captured arguments and keyword arguments in self.callargs as a dictionary with two keys: 
+    # 'args' for a tuple of positional arguments and 'kwargs' for a dictionary of keyword arguments.
+    # see storecallargstest() for an example
+    from functools import wraps
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        arg_names = func.__code__.co_varnames[1:func.__code__.co_argcount]  # Skip 'self'
+        callargs = dict(zip(arg_names, args))
+        callargs.update(kwargs)
+        result = func(self, *args, **kwargs)
+        self.callargs = callargs
+        return result
+    return wrapper
 def dumpargs(func): # Decorator to print function call details # https://stackoverflow.com/a/6278457
     import inspect
     from functools import wraps
@@ -32,8 +97,44 @@ def dumpargs(func): # Decorator to print function call details # https://stackov
         print(f"{func.__name__}({func_args_str}) = {f}") 
         return f
     return wrapper
-def stepclimb(f,*xx,start=None,startval=None,cornersearch=False,verbose=True):
+def montecarlo(f,*xx,n,xnames=None,verbose=True,plot=False): # n = # of iterations, xnames = name of each dim
+    # find max of an N-dim function where N is the number of arrays in xx and each array is a 1-dim array of function arguments
+    # e.g. xx = xs,ys,zs = (-1,0,+1),(0,1,2),(0,3,6,9)
+    N,Ms = len(xx),[len(list(a)) for a in xx] # Ms = length of each arg list
+    def val():
+        from random import choice
+        return [choice(xi) for xi in xx]
+    def ff(i,*x):
+        if verbose: print(f"{i:8d},  ({list2str(x,sep=',')}),",end='')
+        try:
+            result = f(*x)
+            if verbose: print(f'{result:g}')
+        except Exception as e:
+            result = None
+            if verbose: print(e)
+        return result
+    vs = [val() for _ in range(n)]
+    fs = [ff(i,*v) for i,v in enumerate(vs)]
+    fs,vs = zip(*sorted([(fi,v) for fi,v in zip(fs,vs) if fi is not None]))
+    if plot:
+        for i in range(N):
+            xys = sorted([(v[i],fi) for v,fi in zip(vs,fs)])
+            from wavedata import Wave
+            name = xnames[i] if xnames else ''
+            Wave.fromxys(xys).plot(m='o',grid=1,c=str(i),seed=0,x=name)
+    yxs = [(fi,v) for fi,v in zip(fs,vs)]
+    if verbose:
+        print('top twenty:')
+        for y,x in yxs[-20:]: print(y,x)
+    ftop,vtop = yxs[-1]
+    return vtop,ftop
+
+def stepclimb(f,*xx,start=None,startval=None,cornersearch=False,res=0,verbose=True): # res = upsample each x in xx by 2**res
     from math import isnan
+    def upsample(a,n):
+        from wavedata import Wave
+        return upsample(Wave(a).upsample(num=2).ylist(),n-1) if 0<n else a
+    xx = [upsample(a,res) for a in xx]
     # find max of an N-dim function where N is the number of arrays in xx and each array is a 1-dim array of function arguments
     # e.g. xx = xs,ys,zs = (-1,0,+1),(0,1,2),(0,3,6,9)
     # search will start at the center of the grid by default, e.g. f(x=0,y=1,z=6)
@@ -62,25 +163,29 @@ def stepclimb(f,*xx,start=None,startval=None,cornersearch=False,verbose=True):
                     n,k = n0+1,k0
                     break
                 n,k = n0+1,k1
-            if verbose: print(f'      | {gg(k):g} dim {dim} dir {dir:+d} k {k} ks',list(ks[:n]))
+            # if verbose: print(f'      | {gg(k):g} dim {dim} dir {dir:+d} k {k} ks',list(ks[:n]))
+            if verbose: print(f'      | {gg(k):g} dim {dim} dir {dir:+d} ({list2str(ii2vals(k2ii(k)))})')
             return k
         k = scan1d(+1)                      # scan for higher value in +1 direction
         k = scan1d(-1) if k==i0 else k      # if higher not found scan in -1 direction
         return k2ii(k)
     def centerii():
-        return [int(M//2) for M in Ms]
-    def randomii():
         from random import choice
-        return [choice(M) for M in Ms]
+        # return [choice(M) for M in Ms]
+        return [choice(range(M)) for M in Ms]
     def ii2vals(ii):
         return [a[i] for i,a in zip(ii,xx)]
-    def vals2ii(vals):
-        def getindex(a,x): # equivalent version of list(a).index(x) using np.close
-            jj = np.flatnonzero(np.isclose(a,x))
-            return None if 0==len(jj) else int(jj[0])
-        return [getindex(a,v) for v,a in zip(vals,xx)]
+    def nearestindex(a,x):
+        dxs = [abs(ai-x) for ai in a]
+        return sorted([(dx,i) for i,dx in enumerate(dxs)])[0][1]
+    def getindex(a,x): # equivalent version of list(a).index(x) using np.close
+        jj = np.flatnonzero(np.isclose(a,x))
+        return None if 0==len(jj) else int(jj[0])
+    def vals2ii(vals,findnearest=True):
+        return [(nearestindex if findnearest else getindex)(a,v) for v,a in zip(vals,xx)]
     ii = ii0 = vals2ii(startval) if startval is not None else centerii() if start is None else randomii() if 'r'==start[0] else start
-    if verbose and (start is None or 'r'==start[0]): print('start',ii,tuple([a[i] for i,a in zip(ii,xx)]))
+    if verbose and (start is None or 'r'==start[0]):
+        print('start',ii,tuple([a[i] for i,a in zip(ii,xx)]),'|',g(*ii))
     while 1: # step along direct neighbors
         for dim in range(N):
             ii1 = hillclimb1d(ii,dim)
@@ -106,9 +211,9 @@ def stepclimb(f,*xx,start=None,startval=None,cornersearch=False,verbose=True):
         neighbors = list(filter(valid,[neighbor(ii0,dii) for dii in diis]))
         # print('diis',diis); print('neighbors',[neighbor(ii0,dii) for dii in diis]); print('valid neighbors',neighbors)
         g0 = g(*ii0)
-        if verbose: print(f"      {list2str(ii0)}, {g0:g}")
+        if verbose: print(f"      ({list2str(ii2vals(ii0))}), {g0:g}")
         for ii in neighbors:
-            if verbose: print(f"      {list2str(ii0)} → {list2str(ii)}")
+            if verbose: print(f"      ({list2str(ii2vals(ii0))}) → ({list2str(ii2vals(ii))})")
             if g(*ii0)<g(*ii):
                 return ii
         return ii0
@@ -118,7 +223,7 @@ def stepclimb(f,*xx,start=None,startval=None,cornersearch=False,verbose=True):
             break
         ii0 = ii
     xx0 = tuple([a[i] for i,a in zip(ii,xx)])
-    if verbose: print('      | final:',ii,xx0,g(*ii))
+    if verbose: print(f"      | final: ({list2str(xx0,sep=',')}), {g(*ii):g}")
     return ii,xx0,g(*ii)
 def fileformat(file,delimiter=None,crop=False,gethead=False):
     def convert(line):
@@ -163,7 +268,10 @@ def loadfile(file,delimiter=None,quiet=False,debug=False,waves=False):
             print(f'mismatch headcount:{len(names)} datacount:{len(values[0])}')
         print(f'{len(names)} columns loaded:',list2str(names,f='{}',sep=','))
     aa = [np.array(a) for a in transpose(values)]
-    return [Wave(y,aa[0]) for y in aa[1:]] if waves else (names,aa)
+    if waves:
+        from wavedata import Wave
+        return [Wave(y,aa[0]) for y in aa[1:]] if waves else (names,aa)
+    return (names,aa)
 def csvcolumns(file,cols=None,skip=0,endskip=0,delimiter=','):
     import csv
     with open(file, 'r') as f:
@@ -217,6 +325,7 @@ def loadvna(file,folder='',sheet=0):
         else:
             xs = excelcolumn(folder+file,column='A',rowstart=8,rowend=-1,sheet=sheet,filtertext=1)
             ys = excelcolumn(folder+file,column='ABCDEFGHI'[col],rowstart=8,rowend=-1,sheet=sheet,filtertext=1)
+        from wavedata import Wave
         return Wave(ys,1e-9*xs)
     from waves import csvcolumns
     s11 = load(col=1).rename('S11')
@@ -226,9 +335,9 @@ def loadvna(file,folder='',sheet=0):
     return s11,s12,s21,s22
 def nploadfile(file,dtype=None,delimiter='\t',skip=0):
     return np.array(np.genfromtxt(file, dtype=dtype, delimiter=delimiter, names=True, skip_header=skip).tolist())
-def track(iter,f="{:g}"): # usage: [f(n) for n in track(ns)] instead of [f(n) for n in ns]
+def track(iter,f="{:g}",end=' '): # usage: [f(n) for n in track(ns)] instead of [f(n) for n in ns]
     for i in iter:
-        print(f.format(i),end=' ')
+        print(i if hasattr(i,'__len__') else f.format(i),end=end)
         yield i
     print()
 def percenttrack(a):
@@ -240,6 +349,7 @@ def percenttrack(a):
         yield i
     print()
 def list2str(a,f='{:g}',sep=' '): # e.g. print(list2str([1,2,3],f='{:.1f}',sep='#')) # 1.0#2.0#3.0
+    if not a: return ''
     if hasattr(a[0],'__len__') and not isinstance(a[0],str):
         aa = [f"({list2str(ai,f,sep=',')})" for ai in a]
         return sep.join((len(aa)*['{}'])).format(*aa)
@@ -342,6 +452,8 @@ def extend(A,n=1):
     (a,b),(y,z) = A[:2],A[-2:]
     B = [2*a-b,*A,2*z-y]
     return B if n<=1 else extend(B,n-1)
+def fixfloatdrift(x,tol=1e-6):
+    return type(x)([fixfloatdrift(xi,tol) for xi in x]) if hasattr(x,'__len__') else round(x/tol)*tol
 def hrange(x0,x1,n):
     # split range into n equal segments, returning the x position of centers of each segment (useful for histograms)
     dx = (x0-x1)/n
@@ -350,13 +462,38 @@ def frange(x0,x1,dx,z,dz,Δz,tol=1e-6,reversed=False):
     # focused range, lowers the resolution from dx to dz within Δz range around z (where x0<z<x1)
     assert x0<=z<=x1, f"frange requires x0<z<x1 x0:{x0:g} z:{z:g} x1:{x1:g}"
     raise NotImplementedError
-def wrange(x0,x1,dx=1,endpoint=True,wave=False,tol=1e-6,reversed=False):
+def error(s):
+    assert 0, s
+def logrange(x0,x1,res=1):
+    if x1<x0:
+        return logrange(x1,x0,res=res)[::-1]
+    def highreslevels(dx,dy,dz):
+        return wrange(1,2,dx,array=0,endpoint=0) + wrange(2,5,dy,array=0,endpoint=0) + wrange(5,10,dz,array=0,endpoint=1)
+    levels = [1,2,5,10] # for i in range(res-1): levels = sorted(levels+[0.5*a+0.5*b for a,b in zip(levels[:-1],levels[1:])])
+    levels = levels if res<2 else [1,1.4,2,3,5,7,10]
+    levels = levels if res<3 else [1.,1.2,1.4,1.6,1.8,2.,2.5,3.,3.5,4.,4.5,5.,6.,7.,8.,9.,10.]
+    levels = levels if res<3 else highreslevels(0.2,0.5,1)
+    levels = levels if res<4 else highreslevels(0.1,0.2,0.5)
+    levels = levels if res<5 else highreslevels(0.05,0.1,0.2)
+    levels = levels if res<6 else highreslevels(0.02,0.05,0.1)
+    levels = levels if res<7 else error(f"res={res} not yet implemented")
+    e0,e1 = np.floor(np.log10(x0)),np.ceil(np.log10(x1))+1
+    a = [x*10**n for n in wrange(e0,e1) for x in levels[:-1]]
+    return np.array([ai for ai in a if x0<=ai<=x1])
+def wrange(x0,x1,dx=1,endround=False,endpoint=True,wave=False,array=True,aslist=False,tol=1e-6,reversed=False):
+    x0,x1 = (round(x0/dx)*dx,round(x1/dx)*dx) if endround else (x0,x1)
     assert x0<=x1, f"wrange requires x0<x1 x0:{x0:g} x1:{x1:g}"
     n = int(round((x1-x0)/dx))
     assert abs(x1-x0-n*dx) < tol*dx, f'wrange invalid spacing given tolerance, x1-x0:{x1-x0} dx:{dx} n:{n} x1-x0-n*dx:{abs(x1-x0-n*dx)}'
     # return evenly spaced points between x0 and x1 inclusive, with closest step possible to dx
     xs = np.linspace(x0,x1,n+1)
-    return Wave(xs,xs) if True==wave else xs
+    xs = xs if endpoint else xs[:-1]
+    from wavedata import Wave
+    return Wave(xs,xs) if True==wave else xs if (array and not aslist) else list(xs)
+def widths2grid(ds,x0=None):
+    assert all(0<d for d in ds)
+    x0 = x0 if x0 is not None else -sum(ds)/2
+    return x0 + np.nancumsum([0]+list(ds))
 def rint(x):
     return int(np.round(x))
 def funcstring():
@@ -396,6 +533,17 @@ def deal(n,aa,reverse=False):
         return [np.array(aa[::-1][i::n]) for i in range(n)][::-1]
     return [np.array(aa[i::n]) for i in range(n)]
 deal2,deal3,deal4,deal5 = [(lambda a,r=False,n=i : deal(n,a,r)) for i in [2,3,4,5]]
+def autodeal(aa,aswaves=False):
+    def ismonotonicincreasing(aa):
+        return all(a<b for a,b in zip(aa,aa[1:]))
+    for n in range(2,6):
+        if len(aa)%n==0 and ismonotonicincreasing(aa[::n]):
+            if aswaves:
+                x,*ys = deal(n,aa)
+                from wavedata import Wave
+                return [Wave(y,x) for y in ys]
+            return deal(n,aa)
+    assert 0, f"autodeal failed to find 2<=columns<=6"
 def removecloseduplicates(a,**args):
     if len(a)<2:
         return a
@@ -431,9 +579,17 @@ def discretedeltafunction(x,x0,dx): # constant area=1
     return np.maximum(0,1-np.abs((x-x0)/dx))/dx
 def nptophat(x,x0,x1):
     return np.heaviside(x-x0,0.5)-np.heaviside(x-x1,0.5)
-def tophat(x,x0,x1,dx): # guaranteed constant area=x1-x0 on dx spaced grid
-    tri = 0.5 + 0.5*(x1-x0)/dx - np.abs(x-0.5*(x0+x1))/dx
-    return np.maximum(0,np.minimum(1,tri))
+def stepfunction(x,x0,dx):
+    # return np.clip((x-x0)/dx,0,1)
+    return np.clip(0.5*(x-x0+dx)/dx,0,1)
+def inversestepfunction(x,x0,dx):
+    return stepfunction(-x,-x0,dx)
+def tophat(x,x0,x1,dx):
+    # guaranteed constant area=x1-x0 on dx spaced grid
+    # also guaranteed that tophat(xs,x0,x1,dx) + tophat(xs,x1,x2,dx) = tophat(xs,x0,x2,dx)
+    # tri = 0.5 + 0.5*(x1-x0)/dx - np.abs(x-0.5*(x0+x1))/dx
+    # return np.maximum(0,np.minimum(1,tri))
+    return stepfunction(x,x0,dx) - stepfunction(x,x1,dx)
 def sinc(x):
     return np.sinc(x/np.pi)
 def sincsqr(x,*p):
@@ -504,6 +660,7 @@ def curvefit(xs,ys,fitfunc,guess,fix=None,maxfev=0,debug=False):
     q0 = reducedcoef(guess)
     xs,ys = zip(*[(x,y) for x,y in zip(xs,ys) if not np.isnan(x) and not np.isnan(y)])
     if debug:
+        from wavedata import Wave
         print('guess ',guess); print('fullq0',fullcoef(q0),'q0',q0)
         Wave.plots( Wave(ys,xs).setplot(m='o',l=''), Wave([f(x,*q0) for x in xs],xs) )
     q,qcov = curve_fit(f, xs, ys, p0=q0, maxfev=maxfev)
@@ -586,6 +743,7 @@ def pdfsample(xs,ys=None,debug=False):
     area = trapezoidintegrate(ys,xs,returnarray=True)[-1]
     invcdf = trapezoidintegrate(ys,xs,invfunc=True)
     if debug:
+        from wavedata import Wave
         print(invcdf(0),invcdf(area))
         r = [ai/area for ai in trapezoidintegrate(ys,xs,returnarray=True)]
         w = Wave(r,xs).setplot(m='o',l='')
@@ -593,6 +751,36 @@ def pdfsample(xs,ys=None,debug=False):
         ww = Wave(rr,[invcdf(ri*area) for ri in rr])
         Wave.plots(w,ww)
     return invcdf(np.random.random()*area)
+def interpolate1d(x,xs,ys,kind='linear',extrapolate=None,checkvalidity=False):
+    # kind: linear nearest nearest-up zero slinear quadratic cubic previous next
+    # see scipy.interpolate.interp1d
+    from scipy.interpolate import interp1d
+    if not xs[0]<xs[-1]:
+        xx = [x for x in xs if not np.isnan(x)]
+        if not xx[0]<xx[-1]:
+            xs,ys = xs[::-1],ys[::-1]
+    def valid(xs): # 𝒪(1) monte carlo validity check
+        from random import randrange
+        if 1==len(xs):
+            assert 0, 'need to implement interpolate1d for size one '
+            return True
+        i = randrange(0,len(xs)-1)
+        # if not xs[i]<=xs[i+1]: print(i, xs[i], xs[i+1], xs[i]<=xs[i+1])
+        return xs[i]<=xs[i+1] or np.isnan(xs[i]) or np.isnan(xs[i+1])
+    def allvalid(xs): # 𝒪(N)
+        return all([0<xi for xi in xs[1:]-xs[:-1]])
+    assert valid(xs), 'failed monte carlo check, xs must be monotonically increasing or decreasing for interpolate1d (also use checkvalidity=True)'
+    if checkvalidity: assert allvalid(xs),[xi for xi in xs[1:]-xs[:-1]]
+    assert extrapolate in [None,'lin','linear','log','logarithmic','const','constant']
+    if extrapolate in ['log','logarithmic']:
+        ys = np.log(ys)
+    fill_value = (ys[0],ys[-1]) if extrapolate in ['const','constant'] else (None if extrapolate is None else 'extrapolate')
+    with np.errstate(invalid='ignore',divide='ignore'): # print(np.geterr())
+        # suppress warnings when there are duplicate x values (eliminate dups instead?)
+        f = interp1d(xs,ys,kind=kind,fill_value=fill_value,bounds_error=False)
+        y = np.exp(f(x)) if extrapolate in ['log','logarithmic'] else f(x)
+    # return y if hasattr(x,'__len__') else np.asscalar(y)
+    return y if hasattr(x,'__len__') else y.item()
 def fourierintegral(ys,xs,freq,norm=False,returnwaves=False): # exact fourier integral of piecewise linear function
     # @np.vectorize
     def integral(f):
@@ -602,7 +790,7 @@ def fourierintegral(ys,xs,freq,norm=False,returnwaves=False): # exact fourier in
         #   Integral(u(x)*sin(kx),x0,x1) = (k u0 Cos[k x0] - k u1 Cos[k x1] - ((u0 - u1) (Sin[k x0] - Sin[k x1]))/(x0 - x1))/k^2 = -(u1-u0)/(x1-x0)/k^2 * (sin(k*x0)-sin(k*x1)) + 1/k * (u0*cos(k*x0)-u1*cos(k*x1))
         u0,u1,x0,x1 = np.array(ys[:-1]), np.array(ys[1:]), np.array(xs[:-1]), np.array(xs[1:])
         k = -2*pi*f # note negative sign to make consistent with np.fft # defines FT as ∫y(x)exp(-i2πxf)dx (instead of ∫y(x)exp(+i2πxf)dx)
-        u0,u1,x0,x1 = u0[x1-x0!=0],u1[x1-x0!=0],x0[x1-x0!=0],x1[x1-x0!=0]
+        u0,u1,x0,x1 = u0[x1-x0!=0].astype(np.float64),u1[x1-x0!=0].astype(np.float64),x0[x1-x0!=0],x1[x1-x0!=0]
         # if 0==k: return ((u0+u1)/2*(x1-x0)).sum()
         wc =  (u1-u0)/(x1-x0)/k**2 * (cos(k*x1)-cos(k*x0)) + 1/k * (u1*sin(k*x1)-u0*sin(k*x0)) if not 0==k else ((u0+u1)/2*(x1-x0))
         ws = -(u1-u0)/(x1-x0)/k**2 * (sin(k*x0)-sin(k*x1)) + 1/k * (u0*cos(k*x0)-u1*cos(k*x1)) if not 0==k else 0*wc
@@ -610,6 +798,7 @@ def fourierintegral(ys,xs,freq,norm=False,returnwaves=False): # exact fourier in
             L = x1[-1]-x0[0]
             wc,ws = wc/L,ws/L
         if returnwaves:
+            from wavedata import Wave
             wx = [x0[0]] + list(x1)
             wc,ws = Wave(lacc(wc,initial=0),wx), Wave(lacc(ws,initial=0),wx)
             return wc,ws
@@ -655,6 +844,7 @@ def multicrosscorrelation(ws,shifts=None,fraction=0.8,j0=0,di=None,normalize=Tru
     assert len(dxs)==2*ndx+1
     dxs = shifts if shifts is not None else dxs
     def response(shift):
+        from wavedata import Wave
         vs = [subrange(w,j,shift) for j,w in enumerate(ws)]
         if plot and shifts is not None: Wave.plots(*[Wave(v).rename(j) for j,v in enumerate(vs)],m=1,l='0123',ms=2)
         # norm = prod([sum(v**jj)**(1./jj) for v in vs]) if normalize else 1 # overflow error
@@ -662,6 +852,8 @@ def multicrosscorrelation(ws,shifts=None,fraction=0.8,j0=0,di=None,normalize=Tru
         return sum(prod(vs))/norm
     a = np.array([response(shift) for shift in dxs])
     return a,dxs
+def dotproduct(a,b):
+    return sum([ai*bi for ai,bi in zip(a,b)])
 def lerp(x,x0,x1,y0,y1):
     return y0 + (y1-y0)*(x-x0)/(x1-x0)
 def polarlerp(φ,φ0,φ1,r0,r1,confine=True):

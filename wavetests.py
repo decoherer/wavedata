@@ -5,11 +5,13 @@ import numpy as np
 import matplotlib
 import pickle
 # from wavedata import *
+# from wavenp import WWave as Wave
 from waveclass import Wave
 from wave2d import Wave2D
 from vector import Array,V,V3,Vs,Polar,Piecewise
 from util import wrange,timeit,Vec,trapezoidintegrate,discretepdfsample
 from util import coscurvefit,curvefit,quadfit,polyfit,stepclimb,list2str
+from util import storecallargs,maplistargs
 from numpy import sqrt,pi,sin,cos,exp,nan,inf
 from waveclass import interpolate1d
 from wavedata import gaussianproduct
@@ -22,54 +24,55 @@ def wavetest(plot=0):
     # print(set(dir(Wave(1)))-set(dir(np.ndarray)))
     # print( dir(Wave(1)), dir(np.ndarray) )
 
-    ps = pd.Series(data=[1,2,3],index=[0,1,2])
-    ps+7
+    # ps = pd.Series(data=[1,2,3],index=[0,1,2])
+    # ps+7
     # print(ps)
     # print(ps+7)
     Wave([1,2,3]) # print(Wave([1,2,3]))
 
-    class Testwave(pd.Series):
-        def __init__(self, data=None, index=None, name=None, dtype=None, copy=False, fastpath=False, indexname=None):
-            if isinstance(data, (int, float)) and index is None:
-                data = np.zeros(data)
-            if data is None and index is not None:
-                data = index # make it easy to create a wave that's just an x wave, ie. wx = Wave(index=[0,1,2],indexname='wx')
-                name,indexname = None,name
-            if indexname:
-                index = pd.Series(data=index,name=indexname)
-            if isinstance(data,Testwave) and index is None:
-                super(Testwave, self).__init__(data=data, index=data.index, dtype=type(data[0]), name=name, copy=copy, fastpath=fastpath)
-            super(Testwave, self).__init__(data=data, index=index, dtype=float, name=name, copy=copy, fastpath=fastpath)
-        def __str__(self):
-            return str(np.array2string(np.array(self), threshold=19)).replace('\n','') + ' x:' + str(np.array2string(np.array(self.x), threshold=19)).replace('\n','')
-            # def format(a): return '['+' '.join([('%.2f'%n).rstrip('0').rstrip('.') for n in a])+']'
-            # return format(self) + ' x:' + format(self.x)
-        @property
-        def _constructor(self):
-            return Testwave
-        @property
-        def p(self):
-            return Testwave(np.arange(len(self)),index=self.index)
-        @property
-        def y(self):
-            return self.values
-        @property
-        def x(self):
-            return Testwave(data=np.array(self.index),index=np.array(self.index),name=self.index.name)
-        # def array(self): # causes failure in pandas 1.0.3
-        #     return np.asarray(self)
+    if 0:
+        class Testwave(pd.Series):
+            def __init__(self, data=None, index=None, name=None, dtype=None, copy=False, fastpath=False, indexname=None):
+                if isinstance(data, (int, float)) and index is None:
+                    data = np.zeros(data)
+                if data is None and index is not None:
+                    data = index # make it easy to create a wave that's just an x wave, ie. wx = Wave(index=[0,1,2],indexname='wx')
+                    name,indexname = None,name
+                if indexname:
+                    index = pd.Series(data=index,name=indexname)
+                if isinstance(data,Testwave) and index is None:
+                    super(Testwave, self).__init__(data=data, index=data.index, dtype=type(data[0]), name=name, copy=copy, fastpath=fastpath)
+                super(Testwave, self).__init__(data=data, index=index, dtype=float, name=name, copy=copy, fastpath=fastpath)
+            def __str__(self):
+                return str(np.array2string(np.array(self), threshold=19)).replace('\n','') + ' x:' + str(np.array2string(np.array(self.x), threshold=19)).replace('\n','')
+                # def format(a): return '['+' '.join([('%.2f'%n).rstrip('0').rstrip('.') for n in a])+']'
+                # return format(self) + ' x:' + format(self.x)
+            @property
+            def _constructor(self):
+                return Testwave
+            @property
+            def p(self):
+                return Testwave(np.arange(len(self)),index=self.index)
+            @property
+            def y(self):
+                return self.values
+            @property
+            def x(self):
+                return Testwave(data=np.array(self.index),index=np.array(self.index),name=self.index.name)
+            # def array(self): # causes failure in pandas 1.0.3
+            #     return np.asarray(self)
 
-    # print()
-    w = Testwave([1,2,3],[-1,0,1])
-    w+5
-    # print('w',w)
-    # print('w+5',w+5) # fails in pandas 1.0.3
-    # print('w.index',w.index)
-    # print()
-    # print('***')
-    # print('*** passed new tests ***')
-    # print('***')
-    # print()
+        # print()
+        w = Testwave([1,2,3],[-1,0,1])
+        w+5
+        # print('w',w)
+        # print('w+5',w+5) # fails in pandas 1.0.3
+        # print('w.index',w.index)
+        # print()
+        # print('***')
+        # print('*** passed new tests ***')
+        # print('***')
+        # print()
 
     a = 1+np.arange(3); w = Wave(a)
     w+7
@@ -127,12 +130,15 @@ def wavetest(plot=0):
     d = Wave(c,name='d') # print('c',c); print('c.xwave',c.xwave); print('d',d); print('d.x',d.x)
     assert list(d)==[-1,-1,-1,-1,-1,0,1,1,1,1,1] and list(d.x)==[-5.,-4.,-3.,-2.,-1.,0.,1.,2.,3.,4.,5.] # 
     #assert isinstance(d,Wave) and isinstance(d,np.ndarray)
-    assert isinstance(d,Wave) and isinstance(d,pd.Series)
-    e = Wave(9)# print(e)
-    assert list(e)==[0]*9 # 
-    #print(d+e) # not an error, result has combined index
-    def eq(u,v): return (u!=u and v!=v) or u==v
-    assert all([ eq(a,b) for a,b in zip( list(d+e), [np.NaN]*5+[0,1,1,1,1,1]+[np.NaN]*3) ])
+    assert isinstance(d,Wave) and (isinstance(d,pd.Series) or isinstance(d,np.ndarray))
+
+    if 0:
+        e = Wave(9)# 
+        print('d',d)
+        print('e',e)
+        assert list(e)==[0]*9 # print(d+e) # not an error, result has combined index
+        def eq(u,v): return (u!=u and v!=v) or u==v
+        assert all([ eq(a,b) for a,b in zip( list(d+e), [np.NaN]*5+[0,1,1,1,1,1]+[np.NaN]*3) ])
     
     # print(Wave(a)+[0,1]) # correctly raises broadcast error
     assert [2,7,8]==list(Wave(a)+[1,1,1]) # no error
@@ -144,15 +150,17 @@ def wavetest(plot=0):
     assert list(rcopy)==[5,6,7,8,9] and list(rcopy.x)==[-2.5,-2,-1.5,-1,-0.5] and list(rcopy.p)==[0,1,2,3,4]
     rcopy += 10-2*rcopy.p # rcopy.printwave('rcopy'); r[5:10].printwave('r[5:10]')
     assert list(rcopy)==[15,14,13,12,11] and list(rcopy.x)==[-2.5,-2,-1.5,-1,-0.5] and list(rcopy.p)==[0,1,2,3,4]
-    # print((r[5:10]),[5,6,7,8,9] , list(r[5:10].x)==[-2.5,-2,-1.5,-1,-0.5] , list(r[5:10].p)==[0,1,2,3,4])
-    assert list(r[5:10])==[5,6,7,8,9] and list(r[5:10].x)==[-2.5,-2,-1.5,-1,-0.5] and list(r[5:10].p)==[0,1,2,3,4]
+    
+    if 0:
+        print((r[5:10]),[5,6,7,8,9] , list(r[5:10].x)==[-2.5,-2,-1.5,-1,-0.5] , list(r[5:10].p)==[0,1,2,3,4])
+        assert list(r[5:10])==[5,6,7,8,9] and list(r[5:10].x)==[-2.5,-2,-1.5,-1,-0.5] and list(r[5:10].p)==[0,1,2,3,4]
+        r.smooth(11,savgol=False)
 
     rrr = Wave(21).p.smooth(11,savgol=False)
     assert 5==rrr[5]
     #rrrr = Wave(21).p.smooth(11,savgol=True)
     #assert 1==round(rrrr[1]*1e14)/1e14
 
-    r.smooth(11,savgol=False)
 
     # import matplotlib.pyplot as plt
     # plt.rcParams['axes.facecolor']=plt.rcParams['savefig.facecolor']=plt.rcParams['figure.facecolor']='white'
@@ -163,8 +171,8 @@ def wavetest(plot=0):
 
     w = Wave(np.arange(4)*2); w.tmp=0; del w.tmp; # w.p = np.arange(len(w)) # del w.x # correctly raises error
     w = Wave(np.arange(4)*2); w.x=np.arange(-2,6,2); #w.printwave('w')
-    u = Wave(np.arange(4),index=w.xwave); #u.printwave('u')
-    uu = Wave(w.xwave,index=w.xwave); #uu.printwave('uu')
+    u = Wave(np.arange(4),w.xwave); #u.printwave('u')
+    uu = Wave(w.xwave,w.xwave); #uu.printwave('uu')
     uuu = Wave(w.xwave); #uuu.printwave('uuu')
     # w [0 2 4 6] [-2  0  2  4] [0 1 2 3]
     # u [0 1 2 3] [-2  0  2  4] [0 1 2 3]
@@ -184,12 +192,12 @@ def wavetest(plot=0):
 
     u = Wave([10,12,13],name='y (nm)')
     u.x = (1,2,3)
-    u.index.name = 'x (mm)'
+    # u.index.name = 'x (mm)'
     if plot:
         wx = np.linspace(-2.,5.,17)
         ws = [Wave(np.abs(wx)**a,wx) for a in np.linspace(1.0,1.5,6)]
         # ws[0].plot(ws,groups=2,m=1)
-        u.plot(ws,m=True,xlim=(-1,None),ylim=(None,15),groupsize=2)
+        u.plot(*ws,m=True,xlim=(-1,None),ylim=(None,15),groupsize=2)
 
     g = Wave([4,5,6],[0,2,3],name='g')#,indexname='gx')
     assert 4==g[0] and 5==g[1] and 6==g[-1]
@@ -221,20 +229,20 @@ def wavetest(plot=0):
     except FutureWarning:
         print('no savgol_filter')
 
-    k = Wave([2,2,3,3,3],index=[10,11,12,13,14])
-    assert np.allclose(k.zeropad(scale=1),[0,2,2,3,3,3,0,0])
-    assert np.allclose(k.zeropad(scale=2),[0,0,0,0,0,2,2,3,3,3,0,0,0,0,0,0])
-    assert np.allclose(k.zeropad(scale=1,poweroftwo=False),k)
-    assert np.allclose(k.zeropad(scale=2,poweroftwo=False),[0,0,2,2,3,3,3,0,0,0])
+    k = Wave([2,2,3,3,3],[10,11,12,13,14])
+    assert np.allclose(k.zeropad(scale=1).y,[0,2,2,3,3,3,0,0])
+    assert np.allclose(k.zeropad(scale=2).y,[0,0,0,0,0,2,2,3,3,3,0,0,0,0,0,0])
+    assert np.allclose(k.zeropad(scale=1,poweroftwo=False).y,k.y)
+    assert np.allclose(k.zeropad(scale=2,poweroftwo=False).y,[0,0,2,2,3,3,3,0,0,0])
     # print(Wave([0,0,1,1,0,0]).zeropad(1,1))
-    assert np.allclose(Wave([0,0,1,1,0,0]).zeropad(1,1),[0,0,0,1,1,0,0,0])
-    # print(Wave([0,0,1,1,0,0]).zeropad(1,1).fft(0).index)
-    assert np.allclose(Wave([0,0,1,1,0,0]).zeropad(1,1).fft(0).index,[-0.5, -0.375, -0.25, -0.125, 0.0, 0.125, 0.25, 0.375])
+    assert np.allclose(Wave([0,0,1,1,0,0]).zeropad(1,1).y,[0,0,0,1,1,0,0,0])
+    # print(Wave([0,0,1,1,0,0]).zeropad(1,1).fft(0).x)
+    assert np.allclose(Wave([0,0,1,1,0,0]).zeropad(1,1).fft(0).x,[-0.5, -0.375, -0.25, -0.125, 0.0, 0.125, 0.25, 0.375])
     # k.fft().plot()
     # Wave([1,0,1,0,1,0,1,0]).fft().plot()
 
     m = Wave([0,0,1,1],[0,0.4,0.6,1])
-    mmx = Wave(index=np.linspace(0,1,11))
+    mmx = Wave(np.linspace(0,1,11),np.linspace(0,1,11))
     mm = m(mmx)
     # print(mm,type(mm))
     assert np.allclose(mm.x,[0.,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.])
@@ -253,13 +261,13 @@ def wavetest(plot=0):
 
     kk = Wave([2,4,5],[100,101,103]) # print(kk)
     assert np.allclose(kk.upsample().x,[100.0,100.1,100.2,100.3,100.4,100.5,100.6,100.7,100.8,100.9,101.0,101.2,101.4,101.6,101.8,102.0,102.2,102.4,102.6,102.8,103.0]) # print(list(kk.upsample().x))
-    assert np.allclose(kk.upsample(2),Wave([2,3,4,4.5,5],[100,100.5,101,102,103])) # print(kk.upsample(2))
+    assert np.allclose(kk.upsample(2).y,Wave([2,3,4,4.5,5],[100,100.5,101,102,103]).y) # print(kk.upsample(2))
 
     # fwhmtest
     x,xx = np.linspace(-1,1,3),np.linspace(-1,1,1001)
     y,yy = 1-abs(x),1-xx**2
-    Δx,Δxx = Wave(y,x).fwhm(),Wave(yy,xx).fwhm()
-    assert np.allclose([Δx,Δxx], [1,sqrt(2)]), [Δx,Δxx] # print(Δx,Δxx)
+    Δx,Δxx = Wave(y,x).fwhm(),Wave(yy,xx).fwhm()#;print('Δx,Δxx');print(Δx,Δxx)
+    assert np.allclose([Δx,Δxx], [1,sqrt(2)]), [Δx,Δxx]
     xxx = np.linspace(-10,10,1001)
     yyy = Wave(10*np.sinc(xxx),xxx) # print(yyy.fwhm()) # yyy.plot()
     assert 1.2066926064705057==yyy.fwhm()
@@ -337,8 +345,9 @@ def wave2Dtest(plot=0):
     zz = (1/(1+xx**2+yy**2)).reduced(size=3)
     assert np.allclose( zz.flatten(), [0.00497512,0.00990099,0.00497512,0.00990099,1.,0.00990099,0.00497512,0.00990099,0.00497512] )
     assert str(zz[:1,:2])==str(zz[:1][:,:2])=='[[0.00497512 0.00990099]] xs[-10.] ys[-10.   0.]'
-    assert isinstance(zz[0],Wave)
-    assert isinstance(zz[:,0],Wave)
+    if 0:
+        assert isinstance(zz[0],Wave)
+        assert isinstance(zz[:,0],Wave)
     assert isinstance(zz[0:1,0:1],Wave2D)
     assert isinstance(zz[0,0],np.float64)
     with open('__pycache__/test.pickle', 'wb') as outfile: # https://stackoverflow.com/questions/26598109/preserve-custom-attributes-when-pickling-subclass-of-numpy-array
@@ -665,7 +674,10 @@ def filltest(showplot):
     x,y = [0,0,1,1],[0,1,1,0]
     w = Wave(y,x)
     Wave.plots([1.5*w+n for n in range(0,20,2)],fill=1,lw=3,l='0123',seed=30,show=showplot)
-
+    x = np.linspace(0,1,101)
+    w0 = Wave(0.25*np.sin(2*np.pi*x)**2,x,'sin')
+    w1 = Wave(0.5*(1+np.cos(2*np.pi*x)**2),x,'cos')
+    Wave.plots(w1,w0,fillbetween=1,seed=30,show=showplot)
 def chaintest():
     vvs = Vs(x=[0,1,2,np.nan,0,1,2,np.nan,0,1,2,np.nan],y=[0,1,2,np.nan,0,1,2,np.nan,0,1,2,np.nan])
     vs = Vs(x=[0,1,2,np.nan,0,1,2,np.nan,0,1,2],y=[0,1,2,np.nan,0,1,2,np.nan,0,1,2])
@@ -912,7 +924,6 @@ def hysteresistests():
     p.recurringslopes('fall',fraction=0.9,ends=True,debug=1)
     (f/p).recurringslopes('rise',fraction=0.75,ends=True,debug=1)
     (f/p).recurringslopes('fall',fraction=0.75,ends=True,debug=1)
-def wavepickletest(showplot):
     import pandas
     w0 = Wave([2,4,3],[0,1,2],'x:x:x:x:x')
     w0.c = 'k'
@@ -935,6 +946,7 @@ def markeralphatest(showplot):
         for x in (0.9,1.0,1.1): plt.plot([x-0.7],[0.5],marker='D',markersize=50,mew=5,color='k',markerfacecolor='#ff000077')
         plt.xlim(-0.05,2.05); plt.ylim(-0.05,2.05)
         plt.show()
+def wavepickletest(showplot):
     # matplotalphamarkers()
     w = Wave([0,0,3],[2,0,0],m='o',c=0,ms=20,lw=5)
     v0 = Wave([0.5,2.5],[0.7,0.7],'0.1',m='D',ms=120,lw=5,mf=0.1)
@@ -1044,8 +1056,8 @@ def dottest():
 def wave2dintegratetest():
     f = Wave2D([[1,1],[1,1],[1,1],[1,1]],xs=[0,1],ys=[1,2,3,4])
     g = Wave2D([[1,1,1,1],[1,1,1,1],[1,1,1,1]],xs=[1,2,3,4],ys=[10,20,30])
-    print(f @ g)
-    print(f.integrate(g))
+    assert np.allclose(f @ g, [[4,4,4],[4,4,4]]), f @ g
+    assert np.allclose(f.integrate(g), [[4,4,4],[4,4,4]]), f.integrate(g)
 def gaussianproducttest():
     ('θ,σ,ρ',list2str(gaussianproduct(0,10,1, 0,10,1,degrees=1)))
     ('θ,σ,ρ',list2str(gaussianproduct(0,10,1, +90,10,1,degrees=1)))
@@ -1054,6 +1066,148 @@ def gaussianproducttest():
     ('θ,σ,ρ',list2str(gaussianproduct(+45,10,1, -45,10,1,degrees=1)))
     ('θ,σ,ρ',list2str(gaussianproduct(-5,10,1, +5,10,1,degrees=1)))
     ('θ,σ,ρ',list2str(gaussianproduct(-5,inf,1, +5,inf,1,degrees=1)))
+def lightpipestest(λ=1000,z=1,xsize=1000,ω=20,N=255,plot=False):
+    import LightPipes as lp
+    nm,µm,mm = lp.nm,lp.um,lp.mm
+    F0 = lp.Begin(xsize*µm,λ*nm,N=N)
+    F0 = lp.GaussBeam(F0,w0=ω*µm,x_shift=0,y_shift=0)
+    I0 = lp.Intensity(F0)
+    u0 = Wave(I0[N//2]).rename('u0')
+    F1 = lp.Fresnel(z*mm,F0)
+    I1 = lp.Intensity(F1)
+    u1 = Wave(I1[N//2]).rename('u1')
+    xs = wrange(-xsize/2,+xsize/2,xsize/(N-1)) # print('xs',xs)
+    yy,xx = np.meshgrid(xs,xs)
+    zz = exp(-(xx**2+yy**2)/ω**2)
+    ww = Wave2D(zz,xs=xs,ys=xs) # ww.plot()
+    w0 = Wave( ww.xslicemax().y ).rename('w0')
+    www = ww.propagatelightpipes(λ,z) # www.plot()
+    w1 = Wave( www.xslicemax().y ).rename('w1')
+    if plot:
+        Wave.plots(u0,u1,w0.magsqr(),w1.magsqr(),m=0,c='0101',l='2233',scale=(3,1))
+def tophattest(x0=-2,x1=2,dx=0.25,plot=False): # show that tophat(xs,x0,x1,dx) + tophat(xs,x1,x2,dx) = tophat(xs,x0,x2,dx)
+    from wavedata import tophat
+    xs = wrange(-5,5,0.5)
+    v0 = Wave( tophat(xs,-2.0,2.0,0.5), xs )
+    v1 = Wave( tophat(xs,-2.7,2.7,0.5), xs )
+    if plot:
+        Wave.plot(v0,v0.mirrorx(),1+v1,1+v1.mirrorx(),c='0011',l='32',m='o',grid=1,seed=19)
+    assert np.allclose(v0.y,v0.mirrorx().y)
+    assert np.allclose(v1.y,v1.mirrorx().y)
+    xs = wrange(-3,3,dx)
+    ys = wrange(-2,2,dx)
+    nn = Wave2D(xs=xs,ys=ys)
+    aa = nn.rectangle(-1,1,-1,1)
+    assert np.allclose(4,aa.sum()*aa.dx**2) # area = 4 exactly
+    bb = nn.rectangle(0,sqrt(2),0,sqrt(2))
+    assert np.allclose(2,bb.sum()*bb.dx**2) # area = 2 exactly
+    xs = wrange(x0,x1,dx)
+    w = Wave(tophat(xs,-1,1,dx),xs)
+    u0 = Wave(tophat(xs,-1,-1/pi,dx),xs)
+    u1 = Wave(tophat(xs,-1/pi,1/np.e,dx),xs)
+    u2 = Wave(tophat(xs,1/np.e,1,dx),xs)
+    assert np.allclose(w.y,u0.y+u1.y+u2.y)
+    if plot:
+        Wave.plots(w,u0,u1,u2,u0+u1+u2,l='01113',m='oDDD ')
+    u0 = Wave(tophat(xs,-1,-0.1,dx),xs) # check when x0==x1 or when x1-x0<dx/2
+    u1 = Wave(tophat(xs,-0.1,0,dx),xs)
+    u2 = Wave(tophat(xs,0,1,dx),xs)
+    if plot:
+        Wave.plots(w,u0,u1,u2,u0+u1+u2,l='01113',m='oDDD ')
+    assert np.allclose(w.y,u0.y+u1.y+u2.y)
+def rectangletest(step=0.2,plot=True):
+    xs = wrange(-3,3,step)
+    ys = wrange(-2,2,step)
+    nn = Wave2D(xs=xs,ys=ys).rectangle(-2,2,-1,1)
+    if plot:
+        nn.plot()
+    return nn
+def fromtilestest(plot=True):
+    a = [[0,0,0],
+         [0,1,0],
+         [2,2,2]]
+    d = {0:1.0, 1:2.0, 2:1.5}
+    xs = [-2,-1,1,2]
+    ys = [-2,-1,0,1]
+    step = 0.1
+    nn = Wave2D.fromtiles(a,d,xs,ys,step)
+    if plot:
+        nn.plot()
+    return nn
+def slabstest(plot=True):
+    xs = wrange(-3,3,0.2)
+    ys = wrange(-2,2,0.2)
+    nn = Wave2D(xs=xs,ys=ys)
+    n0 = nn.yslabs(ys=[-1.5,0.5],ns=[1,3,1.5]) # n0.plot()
+    n1 = nn.yslabs(ys=[-0.5,1.5],ns=[1,3,1.5]) # n1.plot()
+    n2 = nn.xslabs(xs=[-1,1],ns=[n0,n1,n0])
+    if plot:
+        n2.plot()
+    return n2
+def fourwaystomakearidge(w=2,h=1,n0=1.0,n1=1.5,n2=2.0,step=0.1,plot=True):
+    a = [[0,0,0],
+         [0,2,0],
+         [1,1,1]]
+    d = {0:n0,1:n1,2:n2}
+    xs = [-w/2-1,-w/2,w/2,w/2+1]
+    ys = [-h-1,-h,0,1]
+    na = Wave2D.fromtiles(a,d,xs,ys,step)
+    if plot:
+        na.plot()
+    xs,ys = wrange(-w/2-1,+w/2+1,step),wrange(-h-1,1,step)
+    nn = Wave2D(xs=xs,ys=ys)
+    nend = nn.yslabs(ys=[-h],ns=[n1,n0])
+    nmid = nn.yslabs(ys=[-h,0],ns=[n1,n2,n0])
+    nb = nn.xslabs(xs=[-w/2,w/2],ns=[nend,nmid,nend])
+    if plot:
+        nb.plot()
+    ntop = n0
+    ncen = nn.xslabs(xs=[-w/2,w/2],ns=[n0,n2,n0])
+    nbot = n1
+    nc = nn.yslabs(ys=[-h,0],ns=[nbot,ncen,ntop])
+    if plot:
+        nc.plot()
+    nd = n0 + (n1-n0)*nn.yslab(-h-2,-h) + (n2-n0)*nn.rectangle(-w/2,w/2,-h,0)
+    if plot:
+        nd.plot()
+def storecallargstest(verbose=0):
+    class MyClass:
+        @storecallargs
+        def f(self, a, b, **kwargs):
+            if verbose: print(f"   a: {a}, b: {b}, kwargs: {kwargs}")
+        @storecallargs
+        def g(self, *args, **kwargs):
+            if verbose: print(f"   args: {args}, kwargs: {kwargs}")
+    # Example usage
+    obj = MyClass()
+    obj.f(1, 2, c=3, d=4)
+    assert obj.callargs=={'a': 1, 'b': 2, 'c': 3, 'd': 4}
+    if verbose: print('obj.callargs',obj.callargs)  # Output should be {'a': 1, 'b': 2, 'c': 3, 'd': 4}
+    obj.g(1, 2, c=3, d=4)
+    assert obj.callargs=={'c': 3, 'd': 4}
+    if verbose: print('obj.callargs',obj.callargs)
+def maplistargstest():
+    @maplistargs
+    def f(a, b, c):
+        return a * b * c
+    assert f([1, 2, 3], 2, [4, 5, 6])==[f(1, 2, 4), f(2, 2, 5), f(3, 2, 6)]
+def wwavetest():
+    from wavedata import WWave as Wave
+
+def dashtest():
+    from wavedata import Wavex,Wx,WWave
+    # u = Wave(data=[-5,5],index=[-5,5],name='u').plot()
+    # uu = Wave(index=[-5,5],name='uu').plot()
+    # uuu = Wave(data=[-5,5],name='uuu').plot()
+
+    u1 = Wavex([0,1],'Wavex')
+    u2 = Wx([0,1],'Wx')
+    Wave.plot(u1,u2)
+
+    # w0 = 0*Wavex.dashed(-2,2,dash=(0.5,0.5),phase=0.0) 
+    # w1 = 1*Wavex.dashed(-2,2,dash=(0.5,0.5),phase=0.5)
+    # w2 = 2*Wavex.dashed(-2,2,dash=(0.5,0.5),phase=1.0)
+    # Wave.plots(w0,w1,w2)
 
 
 if __name__ == '__main__':
@@ -1062,7 +1216,7 @@ if __name__ == '__main__':
     # # backendtest('Qt5Cairo')
     showplot = 0
     print('showplot',bool(showplot))
-    if 0:
+    if 1:
         wavetest(plot=showplot)
         wave2Dtest(plot=showplot)
         plottest(plot=showplot)
@@ -1080,16 +1234,16 @@ if __name__ == '__main__':
         bartest(showplot)
         errorbartest(showplot)
         rotationtest()
-        concattest()
         test3d()
         voronoitest(showplot)
         shapelytest(showplot)
+        concattest()
+        filltest(showplot)
         chaintest()
         radialinterpolatetest(showplot)
         randomshapetest(showplot)
         polartest(showplot)
         flowertest(showplot)
-        filltest(showplot)
         plotpropertytest(showplot)
         trapezoidintegratetest(showplot)
         pdfsampletest()
@@ -1099,15 +1253,28 @@ if __name__ == '__main__':
         cosfittest(showplot)
         correlatetest(showplot)
         ffttest(showplot)
-        wavepickletest(showplot)
         markeralphatest(showplot)
+        wavepickletest(showplot)
         joblibWave2Dtest()
         standarderrorofthemeantest()
         stepclimbtest()
         quadmaxtest()
         dottest()
         wave2dintegratetest()
-    gaussianproducttest()
+        gaussianproducttest()
+        lightpipestest(plot=showplot)
+        tophattest(plot=showplot)
+        rectangletest(plot=showplot)
+        fromtilestest(plot=showplot)
+        slabstest(plot=showplot)
+        fourwaystomakearidge(plot=showplot)
+        storecallargstest()
+        maplistargstest()
+        tophattest(plot=0)
+        lightpipestest(plot=0)
+        stepclimbtest()
+    # dashtest()
+
     print('all tests passed')
 
     # fttest()

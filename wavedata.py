@@ -6,8 +6,10 @@
 # such as time series or waveform data
 # perform common scientific operations on xy data
 
-from waveclass import Wave
+from waveclass import Wave,Wavex,Wx
+from wavenp import WWave
 from wave2d import Wave2D
+from wave3d import Wave3D
 from vector import Array,V,V3,Vs,Polar,Piecewise
 from util import *
 # Point = Vector = V
@@ -16,6 +18,7 @@ from util import *
 if __name__ == '__main__':
     from wavetests import  *
     plotit = 1
+    # quick tests only:
     wavetest(plot=plotit)
     wave2Dtest(plot=plotit)
     plottest(plot=plotit)

@@ -4,7 +4,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 import multiprocessing
+import os,time
 disablepause = 0
+disablefork = 0
 noshow = 0
 # todo: check https://github.com/matplotlib/cheatsheets
 # todo: add linegapcolor for dashed lines
@@ -50,23 +52,33 @@ def markerlist(waves,m):
     return m
 def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=False,lines=[],texts=[],
         m='',l=0,c=None,mf=1,li=1,ms=4,lw=1.5,mew=None,
-        fill=False,g=None,seed=None,showseed=False,
+        fill=False,fillbetween=False,g=None,seed=None,showseed=False,
         x=None,y=None,xlabel=None,ylabel=None,xlim=(None,None),ylim=(None,None),
-        rightwaves=[],rightlabel=None,save=None,savefolder='figs',legendtext=None,legendreverse=False,pause=True,groupsize=None,
-        swap=False,scale=1.0,size=None,corner=None,xphase=False,fewerticklabels=False,
-        xticks=None,xticklabels=None,yticks=None,yticklabels=None,clip=True,
+        rightwaves=[],rightlabel=None,rightlim=(None,None),save=None,savefolder='figs',legendtext=None,legendreverse=False,pause=True,groupsize=None,
+        swap=False,scale=1.0,size=None,showsize=False,dpi=300,corner=None,xphase=False,fewerticklabels=False,
+        xticks=None,xticklabels=None,yticks=None,yticklabels=None,clip=True,marg=None,
         aspect=None,show=True,grid=False,colormap=None,vmin=None,vmax=None,levels=None,
         sort=False,connectgaps=False,axes=True,disable=False,darken=0,clickcoords=False,
-        zerox=False,zeroy=False,bar=False,barwidth=0.8,errorbars=[],abbrev=False,fixnans=False,legendalpha=0.0,**kwargs):
+        zerox=False,zeroy=False,xzero=False,yzero=False,stem=False,bar=False,barwidth=0.8,errorbars=[],abbrev=False,
+        fixnans=False,legendalpha=0.0,getplt=False,savepy=True,**kwargs):
     # fork process so computations can continue while plot is shown
-    if kwargs.pop('fork',True):
+    # print('kwargs',kwargs)
+    if kwargs.pop('fork',True) and not getplt and not disablefork:
         # print('waves before fork',[hasattr(w,'m') for w in waves]) # if wave attributes don't survive pickling we must specify markers,colors,etc explicitly before forking process
-        if disable:
-            return
         args = locals()
         kwargs = args.pop('kwargs')
+        if disable:
+            return
         multiprocessing.Process(target=plot, args=[], kwargs={'fork':False,**args,**kwargs}).start()
         return
+    args = locals()
+    if save and args.pop('savepy'):
+        pyfile = savefolder.rstrip('/')+'/py/'+save.replace('.png','')+'.py'
+        # print('import plot; plot.plot(**',{**{k:v for k,v in args.items() if k not in ('kwargs','fork')},**args['kwargs']},')')
+        if not os.path.isfile(pyfile):
+            os.makedirs(os.path.dirname(pyfile), exist_ok=True)
+        with open(pyfile,'w') as f:
+            f.write('import plot; from wavedata import Wave; plot.plot(**'+str({**{k:v for k,v in args.items() if k!='kwargs'},**args['kwargs'],'fork':0,'savepy':0})+')')
     # print('waves after fork',[hasattr(w,'m') for w in waves])
     c = colorlist(waves,c)
     l = linestylelist(waves,l)
@@ -84,7 +96,7 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
     if fixnans:
         waves = [w.removenans() for w in waves]
     for w in waves:
-        assert not any(np.isinf(w)), 'plotted waves connot contain inf'
+        assert not np.any(np.isinf(w.y)), 'plotted waves connot contain inf'
     # https://matplotlib.org/3.1.1/tutorials/text/mathtext.html#symbols
     # https://matplotlib.org/3.1.1/api/markers_api.html#module-matplotlib.markers # diamond = [(0,5),(5,0),(0,-5),(-5,0),(0,5)] (size is normalized)
 
@@ -93,7 +105,11 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
     plt.rcParams['font.sans-serif'] = plt.rcParams['font.family'] = kwargs.pop('font') if 'font' in kwargs else FontProperties(fname='c:/windows/fonts/arialuni.ttf').get_name() # 'Arial' # 'DejaVu Sans'
     # print('font.sans-serif',matplotlib.rcParams['font.sans-serif'],'font.family',matplotlib.rcParams['font.family'])
     # plt.rcParams['axes.facecolor']=plt.rcParams['savefig.facecolor']=plt.rcParams['figure.facecolor']='white'; # plt.rc('font',family='Arial'); 
-    plt.style.use('seaborn-deep'); plt.rcParams['font.size'] = kwargs.pop('fontsize') if 'fontsize' in kwargs else 12
+    try:
+        plt.style.use('seaborn-v0_8-deep')
+    except:
+        plt.style.use('seaborn-deep')
+    plt.rcParams['font.size'] = kwargs.pop('fontsize') if 'fontsize' in kwargs else 12
     plt.ion()
     if pause and not disablepause: plt.ioff()
     plt.figure()
@@ -128,13 +144,16 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
     l = '0'*groupsize+'3'*groupsize+'1'*groupsize+'2'*groupsize+'4'*groupsize if groupsize else l
     ls = [('solid', (0, ())), ('densely dashed', (0, (5, 1))), ('dashed', (0, (5, 5))), ('loosely dashed', (0, (5, 10))), ('densely dotted', (0, (1, 1))), ('dotted', (0, (1, 5))), ('loosely dotted', (0, (1, 10))), ('densely dashdotted', (0, (3, 1, 1, 1))), ('dashdotted', (0, (3, 5, 1, 5))), ('loosely dashdotted', (0, (3, 10, 1, 10))), ('densely dashdotdotted', (0, (3, 1, 1, 1, 1, 1))), ('dashdotdotted', (0, (3, 5, 1, 5, 1, 5))), ('loosely dashdotdotted', (0, (3, 10, 1, 10, 1, 10)))]
     ls = [l for l in ls if 'loosely' not in l[0]]
-    ls = {**{str(n):l[1] for n,l in enumerate(ls)},**{'—':ls[0][1],'–':ls[1][1],'-':ls[2][1],'.':ls[3][1],'"':'None',' ':'None','':'None',None:'None','None':'None'}}
-
+    ls = {**{str(n):l[1] for n,l in enumerate(ls)},**{'—':ls[0][1],'–':ls[1][1],'-':ls[2][1],'.':ls[3][1],'"':'None',' ':'None','_':'None','':'None',None:'None','None':'None'}} # —–-.
     cs = seedcolors(seed,waves,showseed,darken)
     cs = (cs*groupsize)[:groupsize] if groupsize else cs
     # colors = plt.rcParams['axes.prop_cycle'].by_key()['color'] if colors[0] is None else colors # usage: color=colors[n%len(colors)]
+    xlim = (min([w.x.min() for w in waves]),max([w.x.max() for w in waves])) if (xlim=='f' or xlim=='flush') else (0,None) if 0==xlim else (0,xlim) if not hasattr(xlim,'__len__') else xlim
+    ylim = (min([w.y.min() for w in waves]),max([w.y.max() for w in waves])) if (ylim=='f' or ylim=='flush') else (0,None) if 0==ylim else (0,ylim) if not hasattr(ylim,'__len__') else ylim
     def vline(x):
         y0,y1 = min(w.min() for w in waves),max(w.max() for w in waves)
+        y0 = y0 if ylim[0] is None else min(y0,ylim[0])
+        y1 = y1 if ylim[1] is None else max(y1,ylim[1])
         return {'xdata':(x,x),'ydata':(y0,y1),'color':'k','linestyle':(0, (1, 1))}
     lines = [x if isinstance(x,dict) else vline(x) for x in lines]
     for line in lines:
@@ -161,23 +180,40 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         nx,ny = n,n
         c0 = (cs[int(c[nx%len(c)])%len(cs)] if isindex(c[nx%len(c)]) else c[nx%len(c)]) if c else cs[nx%len(cs)]
         l0 = ls[ str(l[n%len(l)]) if l else str(ny%len(ls)) ]
-        lw0 = lw[ny%len(lw)] if hasattr(lw,'__len__') else lw
+        lw0 = float(lw[ny%len(lw)]) if hasattr(lw,'__len__') else float(lw)
         li0 = int(li[n%len(li)]) if hasattr(li,'__len__') else li  # style 0=supress, 1=legend, 2=above line, 3=on line, 4=below line
         m0 = m[n%len(m)] if m else m # m0 = m[ny%len(m)] if m else m
-        ms0 = int(ms[n%len(ms)]) if hasattr(ms,'__len__') else ms
+        ms0 = float(ms[n%len(ms)]) if hasattr(ms,'__len__') else float(ms)
         mf0 = mf[n%len(mf)] if hasattr(mf,'__len__') else mf
-        mf0 = ('#ffffff'+2*mf0 if mf0 in '0123456789abcdef' else mf0) if isinstance(mf0,str) else addalpha(c0,mf0)
-        mew0 = mew[n%len(mew)] if hasattr(mew,'__len__') else mew
+        mf0 = ('#ffffff'+2*mf0 if mf0 in '23456789abcdef' else (c0 if '1'==mf0 else '#ffffff')) if isinstance(mf0,str) else addalpha(c0,mf0) # print('mf0',mf0)
+        mew0 = float(mew[n%len(mew)]) if hasattr(mew,'__len__') else float(mew)
         # m0,nl,mf0,li0 = m[n%len(m)] if m else '', int(l[n%len(l)]) if l else n%len(ls), int(mf[n%len(mf)]) if mf else 1, int(li[n%len(li)]) if li else 1 # print(c0,m0,l0,mf0,li0,lw0)
         if errorbars:
             line = plt.errorbar(wx,w,yerr=errorbars[n],capthick=0,label=names[n] if 1==li0 else'',marker=m0,linestyle=l0,color=c0,markersize=ms0,linewidth=lw0,mfc=mf0,mec=c0,mew=mew0,**kwargs)
+        elif stem:
+            line, stemline, baseline = plt.stem(wx,w,markerfmt=m0,basefmt=' ')#,linefmt=l0)
+            plt.setp(stemline, linewidth = lw0)
+            plt.setp(line, markersize = ms0)
         elif bar:
             line = plt.bar(wx,w,label=names[n] if 1==li0 else'',width=barwidth,color=c0,**kwargs) # ,mfc=mf0,mec=c0,mew=mew0
         elif fill:
             line = plt.fill(wx,w,facecolor=c0,label=names[n] if 1==li0 else'',linestyle=l0,edgecolor='k',linewidth=lw0)
+        elif -1==fillbetween:
+            line = plt.fill_between(wx,w,facecolor=c0,label=names[n] if 1==li0 else'',linestyle=l0,edgecolor='k',linewidth=lw0)
+        # elif fillbetween and 0<n:
+        #     # line = plt.fill_between(wx,w,waves[n-1],facecolor=c0,label=names[n] if 1==li0 else'',linestyle=l0,edgecolor='k',linewidth=lw0)
+        #     a,b = w.mergex(waves[n-1]),waves[n-1].mergex(w)
+        #     line = plt.fill_between(a.x,a.y,b.y,facecolor=c0,label=names[n] if 1==li0 else'',linestyle=l0,edgecolor='k',linewidth=lw0)
+        elif fillbetween:
+            a,b = w.mergex(waves[min(n+1,len(waves)-1)]),waves[min(n+1,len(waves)-1)].mergex(w)
+            line = plt.fill_between(a.x,a.y,b.y,facecolor=c0,label=names[n] if 1==li0 else'',linestyle=l0,edgecolor='k',linewidth=lw0)
         else:
-            line = plt.plot(wx,w,label=names[n] if 1==li0 else'',clip_on=clip,zorder=3,
-                marker=m0,linestyle=l0,color=c0,markersize=ms0,linewidth=lw0,mfc=mf0,mec=c0,mew=mew0,gapcolor=None,**kwargs)
+            try:
+                line = plt.plot(wx,w,label=names[n] if 1==li0 else'',clip_on=clip,zorder=3,
+                    marker=m0,linestyle=l0,color=c0,markersize=ms0,linewidth=lw0,mfc=mf0,mec=c0,mew=mew0,gapcolor=None,**kwargs)
+            except:
+                line = plt.plot(wx,w,label=names[n] if 1==li0 else'',clip_on=clip,zorder=3,
+                    marker=m0,linestyle=l0,color=c0,markersize=ms0,linewidth=lw0,mfc=mf0,mec=c0,mew=mew0,**kwargs)
         if 1<li0:
             labelinline += [[line[0],names[n],li0]]
         # TODO marker zorder: plt.scatter(wx,w,zorder=2.1,linestyle=ls[l0][1],marker=m0,label=None,color=c0,s=ms0,**(kwargs if mf0 else {**kwargs,'facecolors':'white'}))
@@ -192,6 +228,7 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         plt.tick_params('y', colors=cs[0])
         plt.ylabel(y if y is not None else ylabel, color=cs[0])
         rightwaves = rightwaves if hasattr(rightwaves, '__len__') else [rightwaves]
+        ax1 = plt.gca()
         ax2 = plt.twinx()
         for i,w in enumerate(rightwaves):
             # wave attributes don't survive pickling
@@ -200,10 +237,16 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
             wx = w.x if hasattr(w,'x') else np.arange(len(w))
             ax2.plot(wx,w,color='darkred',linestyle=ls[f"{i}"],label=w.name)
         ax2.tick_params('y', colors='darkred')
-        if rightlabel: ax2.set_ylabel(rightlabel, color='darkred')
+        if rightlabel:
+            ax2.set_ylabel(rightlabel, color='darkred')
+        ax2.set_ylim(*rightlim)
+        plt.sca(ax1) # set current axis back to y-left
 
     if legendtext or any(hasattr(w,'name') and w.name for w in waves):
         hs,_ = plt.gca().get_legend_handles_labels()
+        cornerlist = ['best', 'upper right', 'upper left', 'lower left', 'lower right', 'right', 'center left', 'center right', 'lower center', 'upper center', 'center']
+        corners = {'tr':'upper right','tc':'upper center','tl':'upper left','br':'lower right','bc':'lower center','bl':'lower left',None:None,'b':'best','ur':'upper right','ul':'upper left','ll':'lower left','lr':'lower right','r':'right','cl':'center left','cr':'center right','lc':'lower center','uc':'upper center','c':'center','cc':'center'}
+        corner = corner if corner in cornerlist else corners[corner]
         leg = plt.legend(handles=hs if hs else [matplotlib.patches.Patch(color='none', label=legendtext)],
             framealpha=legendalpha,title=legendtext if hs else '',loc=corner,
             prop={'size':(legendfontsize if legendfontsize else 12)}) #,loc='upper right',loc='center left',loc='upper center',loc='center',frameon=False
@@ -215,17 +258,15 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
             plt.minorticks_on()
             plt.grid(True, which='major', linestyle='-', color='0.85')
             plt.grid(True, which='minor', linestyle='--', color='0.85')
-    if zerox: plt.axvline(0,color='k')
-    if zeroy: plt.axhline(0,color='k')
+    if zerox or xzero: plt.axvline(0,color='k')
+    if zeroy or yzero: plt.axhline(0,color='k')
     if logx or loglog: plt.xscale('log')
     if log or loglog: plt.yscale('log')
     # xleft,xright = plt.xlim()  # return the current xlim
-    xlim = (min([w.x.min() for w in waves]),max([w.x.max() for w in waves])) if xlim=='f' or xlim=='flush' else xlim
-    ylim = (min([w.y.min() for w in waves]),max([w.y.max() for w in waves])) if ylim=='f' or ylim=='flush' else ylim
-    if isinstance(xlim,float) and 0<abs(xlim)<1:
-        plt.margins(x=xlim); xlim = None
-    if isinstance(ylim,float) and 0<abs(ylim)<1:
-        plt.margins(y=ylim); ylim = None
+    # if isinstance(xlim,float) and 0<abs(xlim)<1:
+    #     plt.margins(x=xlim); xlim = None
+    # if isinstance(ylim,float) and 0<abs(ylim)<1:
+    #     plt.margins(y=ylim); ylim = None
     plt.xlim(xlim); plt.ylim(ylim)
     if not (loglog or log or logx):
         plt.ticklabel_format(style='plain')
@@ -249,12 +290,20 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         plt.xticks(xticks,xticklabels,rotation=90)
     if yticks is not None:
         plt.yticks(yticks,yticklabels,rotation=0)
+    # plt.margins(*margins if hasattr(margins,'__len__') else (margins,margins) if margins is not None else None)
+    if isinstance(marg,dict): # examples: marg=0.1, marg=(0.1,0.1,0.95,0.95), marg=dict(left=0.1,bottom=0.1)
+        plt.subplots_adjust(**marg)
+    elif hasattr(marg,'__len__'):
+        plt.subplots_adjust(*marg)
+    elif marg is not None:
+        plt.subplots_adjust(marg,marg,1-marg,1-marg)
     if not axes:
         plt.axis('off')
         plt.tight_layout()
         plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0, hspace=0)
     fig = plt.gcf()
     sx,sy = scale if hasattr(scale,'__len__') else (scale,scale)
+    if showsize: print('size in inches before scaling',fig.get_size_inches())
     fig.set_size_inches((fig.get_size_inches()[0]*sx, fig.get_size_inches()[1]*sy) if size is None else size)
     if aspect: # or not (colormesh is None and image is None and contour is None and contourf is None):
         # aspect = +1, aspect fixed when zoomed
@@ -272,21 +321,20 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
             print(f" ({event.xdata:g},{event.ydata:g})")
         cid = plt.gcf().canvas.mpl_connect('button_press_event', onclick)
 
-    import os,time
     savefolder = savefolder if os.path.isdir(savefolder) else '.'
     if save:
         savename = save.replace('.png','')
         savefile = savefolder.rstrip('/')+'/'+savename+'.png'
-        plt.savefig(savefile, bbox_inches='tight',dpi=300)
+        plt.savefig(savefile,bbox_inches=None if marg else 'tight',dpi=dpi)
         # add_custom_watermark(savefile,savename,overwrite=True)
         # time.sleep(2)
         # os.utime(savefile, (time.time(), time.time()))
     else:
         savefile = savefolder.rstrip('/')+'/out.png'
-        plt.savefig(savefile, bbox_inches='tight',dpi=300)
-    if show and not noshow:
+        plt.savefig(savefile,bbox_inches=None if marg else 'tight',dpi=dpi)
+    if show and not noshow and not getplt:
         plt.show(block=block); plt.pause(0.1)
-    return savefile
+    return savefile if not getplt else plt
 def defaultcolors():
     seaborn = ['#4C72B0','#55A868','#C44E52','#8172B2','#CCB974','#64B5CD'] # plt.rcParams['axes.prop_cycle'].by_key()['color']
     msofficetheme1 = ['#4F81BD','#C0504D','#9BBB59','#8064A2','#4BACC6','#F79646','#404080','#804080']
@@ -329,6 +377,7 @@ def defaultcolors():
     ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'],
     ['#405e73','#80bfe6','#2e8c2e','#8f8c45','#d9994d','#d9b366','#fadb96'],
     ['#9e0242','#e85c47','#fdbf70',darker('#fffebe',0.85),'#bee59f','#54adaf','#5f4fa2'], # seed=23
+    ['#e00707','#a10000','#a15000','#a1a100','#416600','#008141','#008282','#005682','#000056','#6a006a','#77003c','#2b0057'],
     *coolors,
     ]
     return a
@@ -406,8 +455,8 @@ from matplotlib.container import ErrorbarContainer
 from datetime import datetime
 def labelLine(line, x, dy=0, label=None, align=True, **kwargs): # https://github.com/cphyc/matplotlib-label-lines/blob/master/labellines/core.py
     ax = line.axes
-    xdata = line.get_xdata()
-    ydata = line.get_ydata()
+    xdata = np.array(line.get_xdata())
+    ydata = np.array(line.get_ydata())
     mask = np.isfinite(ydata)
     if mask.sum() == 0:
         raise Exception('The line %s only contains nan!' % line)
@@ -548,7 +597,7 @@ def multiplot(product=True,verbose=0):
             if 1==len(runs):
                 return f(*runs[0], **kwargs, mp=dict())
             ws = [f(*ai, **kwargs, mp=dict(disable=1)) for ai in runs[1:]]
-            from waves import Wave
+            from wavedata import Wave
             m = 1 if isinstance(ws[0],Wave) else len(ws[0])
             ws = ws if 1==m else [v for vs in ws for v in vs]
             cs = ''.join([s*(N//r) for s in '0123456789'[:r]]) # print('cs',cs)
@@ -560,7 +609,7 @@ def multiplot(product=True,verbose=0):
         return wrapper
     return decorator
 def multiplotdemo():
-    from waves import Wave
+    from wavedata import Wave
     @multiplot(verbose=True,product=True)
     def test(h,g,m,a=0,b=0,mp=None):
         xs = np.linspace(-2,2,5)
@@ -616,7 +665,7 @@ def multiplots(product=True,verbose=0):
         return wrapper
     return decorator
 def multiplotsdemo():
-    from waves import Wave
+    from wavedata import Wave
     @multiplots(verbose=True,product=True)
     def test(h,g,m,*,mp=None):
         xs = np.linspace(-2,2,5)
@@ -633,7 +682,7 @@ def multiplotsdemo():
     # Wave.plots(*us,*vs)
 
 def colortest():
-    from waves import Wave
+    from wavedata import Wave
     nn = len(defaultcolors())
     print(nn)
     w = Wave([0,1,0,1])
@@ -661,7 +710,7 @@ def findwatermark(file):
 if __name__ == '__main__':
     # multiplotdemo()
     # multiplotsdemo()
-    # colortest()
+    colortest()
     print(len(defaultcolors()))
-    watermarktest()
+    # watermarktest()
     # findwatermark("c:/py/work/sell/figs/modifieddiffusiontest.png")
