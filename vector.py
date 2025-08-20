@@ -67,6 +67,8 @@ class V(Array):
         return self/self.mag()
     def norm(self):
         return self/self.mag()
+    def direction(self): # angle that vector makes with x-axis
+        return np.arctan2(self.y,self.x)
     def translation(self,d,v1,v0=(0,0)): # return translation of point (x,y) by distance d in direction of line passing through (x0,y0) and (x1,y1)
         return self+d*(v1-v0).unit()
     def reflection(self,v1,v0=(0,0)):
@@ -91,6 +93,18 @@ class V(Array):
         xx,yy = x*cos(θ)-y*sin(θ),x*sin(θ)+y*cos(θ)
         vv = list(v[:axis0]) + [xx] + list(v[axis0+1:axis1]) + [yy] + list(v[axis1+1:])
         return p0 + self.__class__(vv)
+    @staticmethod
+    def lineintersection(p1,p2,p3,p4):
+        (x1,y1),(x2,y2),(x3,y3),(x4,y4) = p1,p2,p3,p4
+        denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denominator
+        py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denominator
+        return V(px,py)
+    @staticmethod
+    def lineintersection2(p1,p2,p3,p4):
+        c0,c1 =  V3.lineintersection(V3(*p1,0),V3(*p2,0),V3(*p3,0),V3(*p4,0))
+        assert np.allclose(c0,c1), 'both points of closest approach should intersect in 2D'
+        return V(c0[:2])
 class V3(V):
     """
     Vector (x,y,z) data structure.
@@ -304,6 +318,8 @@ class Vs(Array):
         return list([list(v) for v in self])
     def mag(self):
         return np.array([v.mag() for v in self])
+    def unit(self):
+        return self / self.mag()
     def length(self):
         return np.sum(self.segmentlengths())
     def cumlengths(self):
@@ -415,6 +431,92 @@ class Vs(Array):
     def endnormals(self,n0,n1,delta=0.1):
         n0,n1 = n0/n0.mag()*(self[1]-self[0]).mag()*delta,n1/n1.mag()*(self[-2]-self[-1]).mag()*delta
         return self[:1].concat([self[0]+n0], self[1:-1], [self[-1]+n1], self[-1:])
+    def cosangles(self): # returns cos(angle) formed by prior and latter vertices for each vertex
+        # -1<=cos(angle)<=1
+        # cos(θ)=-1 → flattest angle, cos(θ)=1 → sharpest angle
+        # use the dot product of the vectors formed by the vertices to find cosθ
+        def cosθ(a,b,c):
+            v0,v1 = a-b,c-b
+            return np.dot(v0,v1)/v0.mag()/v1.mag()
+        return [np.nan]+[cosθ(a,b,c) for a,b,c in zip(self[:-2],self[1:-1],self[2:])] + [np.nan]
+    def sharpestvert(self,closed=False):
+        cosθs = self.cosangles()
+        if closed:
+            assert np.all(self[0]==self[-1]), 'curve not closed'
+            cosθs = Vs(list(self)+[self[1]]).cosangles()
+        return cosθs.index(np.nanmax(cosθs))
+    def shiftclosedcurve(self,i):
+        assert np.all(self[0]==self[-1]), 'curve not closed'
+        assert 0<=i<len(self)-1, 'index out of range'
+        return self[i:-1] ++ self[:i+1]
+    def radiused(self,r,i=None,res=0.05,getc=False,debug=False): # r = radius, i = index of vertex to round off, res = angular resolution of arc
+        assert np.all(self[0]==self[-1]), 'curve not closed'
+        def dist(p,l): # distance of point p to line l
+            return np.abs(np.cross(l[1]-l[0],p-l[0]))/np.linalg.norm(l[1]-l[0])
+        def shorten(a,s): # shorten, but not too much
+            if a[-2:].length()<=s:
+                return a[:-1]
+            aend = a[-1] + (a[-2]-a[-1]).unit()*s
+            return Vs(list(a[:-1]) + [aend])
+        assert np.all([(pi-pj).mag() for pi,pj in zip(self[:-1],self[1:])]), 'no duplicate vertices'
+        i = i if i is not None else self.sharpestvert(closed=0)
+        assert 0<i<=len(self)-1, 'index out of range'
+        vv = self.copy()
+        # a,b = vv[:i+1],vv[i:][::-1] # input,output curve, they meet at last point of a and last point of b
+        di = (i+len(vv[:-1])//2)%len(vv[:-1])
+        i,vv = ((i-di+len(vv[:-1]))%len(vv[:-1]),vv.shiftclosedcurve(di)) if i<0.25*len(vv) or 0.75*len(vv)<i else (i,vv) # shift so that i is away from the ends
+        a,b = vv[:i+1],vv[i:][::-1] # input,output curve, they meet at last point of a and last point of b
+        def ispointinwedge(p, u, v): # return True if point p is inside wedge formed by vectors u and v
+            p,u,v = V([*p,0]).unit(),V([*u,0]).unit(),V([*v,0]).unit()
+            return u@v<=u@p and v@u<=v@p
+        # for f in [V(+1,+1),V(-1,+1),V(+1,-1),V(-1,-1)]: print(f'ispointinwedge({f},V(1,0),V(0,1))',ispointinwedge(f,V(1,0),V(0,1)))
+        def linepairequidistantpoints(d,p1,p2,p3,p4,inner=True,outer=False): # d = distance, p1,p2 = line 1, p3,p4 = line 2
+            v1,v2 = p2-p1,p4-p3
+            v1,v2 = v1/np.linalg.norm(v1),v2/np.linalg.norm(v2)
+            n1,n2 = np.array([-v1[1],v1[0]]),np.array([-v2[1],v2[0]])
+            def intersection(d1,d2):
+                A = np.vstack([n1,n2])
+                b = np.array([d1*d+np.dot(p1,n1),d2*d+np.dot(p3,n2)])
+                try: return np.linalg.solve(A,b)
+                except np.linalg.LinAlgError: return None
+            qs = [p for d1 in [-1,1] for d2 in [-1,1] if (p:=intersection(d1,d2)) is not None]
+            # return qs if not inner else [p for p in qs if np.dot(p-p1,n1)*np.dot(p-p3,n2)<0]
+            return [q for q in qs if (1 if not (inner or outer) else outer^(np.dot(q-p1,n1)*np.dot(q-p3,n2)<0))]
+        # print(linepairequidistantpoints(r,V(0,0),V(0,1),V(1,0),V(1,1),inner=False))
+        while 1: # shorten a,b until there is room to fit a tangent circle to their extrapolations
+            # if len(a)<2 or len(b)<2:
+            #     ws = [vv.wave().setplot(ms=5,mf='w'),vv[1:-1].wave().setplot(ms=5,mf='w'),a.wave().rename(f'A len {len(a)}'),b.wave().rename(f'B len {len(b)}')]
+            #     Wave.plot(*ws,m='o',ms=2,seed=3,aspect=1,grid=1)
+                
+            c = V.lineintersection(a[-2],a[-1],b[-2],b[-1]) # intersection of the extrapolated segments a[-2:] and b[-2:]
+            ua,ub = (a[-2]-a[-1]).unit(),(b[-2]-b[-1]).unit() # unit vectors for a and b pointing away from c
+            qq = [q for q in linepairequidistantpoints(r,*a[-2:],*b[-2:],inner=0)] # 4 points r distant from lines a[-2:] and b[-2:]
+            assert len([q for q in qq if ispointinwedge(q-c,ua,ub)])==1, 'expected one equidistant point inside wedge'
+            q = [q for q in qq if ispointinwedge(q-c,ua,ub)][0] # only one is inside the wedge formed by ua and ub, q will be the center of the circle
+            da,db = np.dot(a[-1]-c,ua),np.dot(b[-1]-c,ub) # distance of c from a[-2] along ua and and b[-2] along ub
+            uq,dq = (q-c).unit(), (q-c).mag() # dq = distance of c from q # print('da,db,dq',da,db,dq)
+            if da>dq and db>dq:
+                break
+            s = min(a[-2:].length(),b[-2:].length(),r)
+            a,b = shorten(a,s),shorten(b,s)
+            if 1<debug: Vs.plots(a.rename('A'),b.rename('B'),Vs([c]).rename('c'),Vs([q]).rename('q'),m='o',seed=3)
+        cosϕ = np.sqrt(0.5*(1+ua@ub)) # ϕ = halfangle subtended by ua,ub
+        a0,b0 =c+ua*dq*cosϕ,c+ub*dq*cosϕ # a0,b0 = points on a,b at distance r from q
+        θa,θb = (a0-q).direction(),(b0-q).direction() # arc is from θa to θb, the short way around the circle
+        isccw = (θb-θa+2*pi)%(2*pi)<pi
+        θ0,θ1 = ((θa,θb) if θb>θa else (θa,θb+2*pi)) if isccw else ((θa,θb) if θa>θb else (θa+2*pi,θb))
+        # print('isccw',isccw,'θa,θb',θa,θb,'θ0,θ1',θ0,θ1)
+        arc = Vs([q+r*V(cos(θ),sin(θ)) for θ in np.linspace(θ0,θ1,int(abs(θ1-θ0)/res)+2)])
+        assert np.allclose(arc[0],a0) and np.allclose(arc[-1],b0), 'arc end points should be a0 and b0'
+        if debug:
+            us = [Vs([q]).wave().rename('o').setplot(l=' ',mf='w') for q in linepairequidistantpoints(r,*a[-2:],*b[-2:],outer=1)]
+            vs = [Vs([c]).wave().rename('c')]+[Vs([q]).wave().rename('i').setplot(l=' ',mf='1') for q in linepairequidistantpoints(r,*a[-2:],*b[-2:],inner=1) if ispointinwedge(q-c,a[-2]-a[-1],b[-2]-b[-1])]
+            ws = [a.wave().rename('A'),b.wave().rename('B'),Vs(list(a)+[a0]).wave().rename('a').setplot(l='2'),Vs(list(b)+[b0]).wave().rename('b').setplot(l='2')]
+            ts = [arc.wave().rename('arc').setplot(l='3',m=' '),Vs([a0]).wave().rename('a0').setplot(l=' ',mf='2'),Vs([b0]).wave().rename('b0').setplot(l=' ',mf='2')]
+            Wave.plot(*ws,*us,*vs,*ts,m='o',seed=3,aspect=1,grid=1)
+        # a,b = Vs(list(a)+[a0]),Vs(list(b)+[b0])
+        return (a.concat(arc).concat(b[::-1]),c) if getc else a.concat(arc).concat(b[::-1])
+
     def bspline(self, n=101, degree=3, closed=False, keependnormals=False): # https://stackoverflow.com/a/35007804/12322780
         cv,count = np.asarray(self),self.shape[0]
         if closed:
@@ -570,7 +672,7 @@ class Polar(Wave): # self.x = θ/2π, self.y = r
         xs,ys = zip(*self.polar2xy())
         return Wave(ys,xs,self.name)
     def polar2xy(self):
-        return [ (-r*np.sin(q), r*np.cos(q)) for r,q in zip(self.y,2*np.pi*self.x) ]
+        return [ (-r*np.sin(q), r*np.cos(q)) for r,q in zip(self.y,2*np.pi*np.array(self.x)) ]
     def polar2vs(self):
         return Vs(self.polar2xy())
     def plot(self,**kwargs):
@@ -661,3 +763,5 @@ class Piecewise(Wave):
 # https://github.com/sbliven/geometry-simple/blob/master/geo.py
 # http://toblerity.org/shapely/manual.html#introduction
 
+if __name__ == '__main__':
+    ...

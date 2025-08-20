@@ -6,9 +6,9 @@
 # such as time series or waveform data
 # perform common scientific operations on xy data
 
-from waveclass import Wave,Wavex,Wx
+from waveclass import Wave
 from wavenp import WWave
-from wave2d import Wave2D
+from wave2d import Wave2D,Mesh2D
 from wave3d import Wave3D
 from vector import Array,V,V3,Vs,Polar,Piecewise
 from util import *

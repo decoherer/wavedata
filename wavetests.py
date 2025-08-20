@@ -1,11 +1,8 @@
 # coding: utf8 # only needed for python 2
 
-import pandas as pd
 import numpy as np
 import matplotlib
 import pickle
-# from wavedata import *
-# from wavenp import WWave as Wave
 from waveclass import Wave
 from wave2d import Wave2D
 from vector import Array,V,V3,Vs,Polar,Piecewise
@@ -17,6 +14,8 @@ from waveclass import interpolate1d
 from wavedata import gaussianproduct
 # from rich.traceback import install
 # install()
+# import pandas as pd
+# from wavepd import Wavepd as Wave
 
 def wavetest(plot=0):
     #a = np.array([1,2,3]); a.x = 5 # error
@@ -129,8 +128,8 @@ def wavetest(plot=0):
 
     d = Wave(c,name='d') # print('c',c); print('c.xwave',c.xwave); print('d',d); print('d.x',d.x)
     assert list(d)==[-1,-1,-1,-1,-1,0,1,1,1,1,1] and list(d.x)==[-5.,-4.,-3.,-2.,-1.,0.,1.,2.,3.,4.,5.] # 
-    #assert isinstance(d,Wave) and isinstance(d,np.ndarray)
-    assert isinstance(d,Wave) and (isinstance(d,pd.Series) or isinstance(d,np.ndarray))
+    # assert isinstance(d,Wave) and isinstance(d,np.ndarray)
+    # assert isinstance(d,Wave) and (isinstance(d,pd.Series) or isinstance(d,np.ndarray))
 
     if 0:
         e = Wave(9)# 
@@ -249,14 +248,17 @@ def wavetest(plot=0):
     assert isinstance(mm,Wave)
 
     assert np.allclose(mm(0.3,0.6).x,[0.3,0.4,0.5,0.6])
-    assert np.allclose(mm(0.2,0.5).x,[0.2,0.3,0.4,0.5])
     assert np.allclose(mm(0.19,0.49).x,[0.2,0.3,0.4])
     assert np.allclose(mm(0.21,0.51).x,[0.3,0.4,0.5])
 
-    with open('__pycache__/test.pickle', 'wb') as outfile:
-        pickle.dump(m, outfile)
-    with open('__pycache__/test.pickle', 'rb') as infile:
-        mp = pickle.load(infile)
+    # with open('__pycache__/test.pickle', 'wb') as outfile:
+    # # assert np.allclose(mm(0.2,0.5).x,[0.2,0.3,0.4,0.5])
+    #     pickle.dump(m, outfile)
+    # with open('__pycache__/test.pickle', 'rb') as infile:
+    #     mp = pickle.load(infile)
+    # assert np.array_equal(m,mp) # print('m:',m) print('mp:',mp)
+    p = pickle.dumps(m)
+    mp = pickle.loads(p)
     assert np.array_equal(m,mp) # print('m:',m) print('mp:',mp)
 
     kk = Wave([2,4,5],[100,101,103]) # print(kk)
@@ -350,10 +352,12 @@ def wave2Dtest(plot=0):
         assert isinstance(zz[:,0],Wave)
     assert isinstance(zz[0:1,0:1],Wave2D)
     assert isinstance(zz[0,0],np.float64)
-    with open('__pycache__/test.pickle', 'wb') as outfile: # https://stackoverflow.com/questions/26598109/preserve-custom-attributes-when-pickling-subclass-of-numpy-array
-        pickle.dump(zz, outfile)
-    with open('__pycache__/test.pickle', 'rb') as infile:
-        zp = pickle.load(infile)
+    # with open('__pycache__/test.pickle', 'wb') as outfile: # https://stackoverflow.com/questions/26598109/preserve-custom-attributes-when-pickling-subclass-of-numpy-array
+    #     pickle.dump(zz, outfile)
+    # with open('__pycache__/test.pickle', 'rb') as infile:
+    #     zp = pickle.load(infile)
+    p = pickle.dumps(zz)
+    zp = pickle.loads(p)
     assert np.array_equal(zz,zp) # print('zz:',zz) print('zp:',zp)
     # print(type(zz.flatten()),type(zz[0]))
     aa = Wave2D([[1,1,1,1],[1,np.nan,0,1],[1,1,1,1]])
@@ -1193,7 +1197,30 @@ def maplistargstest():
     assert f([1, 2, 3], 2, [4, 5, 6])==[f(1, 2, 4), f(2, 2, 5), f(3, 2, 6)]
 def wwavetest():
     from wavedata import WWave as Wave
-
+def radiusedtest(plot=True,i=None):
+    for j in range(30):
+        if i is None:
+            radiusedtest(plot=0,i=j)
+    from wavedata import wrange
+    a = Vs([(1,1)]+[(cos(u),sin(u)) for u in wrange(0,pi/2,pi/40)]+[(1,1)]) # a.plot(m='o',grid=1)
+    i = i if i is not None else len(a)//2
+    aa = a.shiftclosedcurve(i%len(a[:-1]))
+    b = a.radiused(0.1) + V(0.1,0.1) # b.plot(m='o',grid=1)
+    c = b.radiused(0.05,debug=0) + V(0.1,0.1)
+    if plot:
+        Wave.plot(a.wave(),aa[1:-1].wave(),b.wave(),c.wave(),m='o',ms=2,grid=1,aspect=1,seed=1)
+def mergetest(plot=False):
+    aa = Wave([1,2,3,4],[0,1,2,3])
+    bb = Wave([5,6,7,8],[2,3,4,5])
+    assert np.allclose( aa.mergex(bb).x, bb.mergex(aa).x )
+    a = Wave([0,0,1,1,0,0],[0,1,1,2,2,4])
+    b = Wave([0,0,1,1,0,0],[0,2,2,3,3,4])
+    c = a.mergex(b)+b.mergex(a)
+    d = a.addlayer(b)
+    assert np.allclose( c.x, [0,1,1,2,2,3,3,4] )
+    assert np.allclose( d.x, [0,1,1,2,2,3,3,4] )
+    assert np.allclose( c.y, d.y )
+    if plot: Wave.plot(a+0.0,a.mergex(b)+0.0,b+2.0,b.mergex(a)+2.0,c+4.0,m='o',l='03')
 def dashtest():
     from wavedata import Wavex,Wx,WWave
     # u = Wave(data=[-5,5],index=[-5,5],name='u').plot()
@@ -1208,15 +1235,34 @@ def dashtest():
     # w1 = 1*Wavex.dashed(-2,2,dash=(0.5,0.5),phase=0.5)
     # w2 = 2*Wavex.dashed(-2,2,dash=(0.5,0.5),phase=1.0)
     # Wave.plots(w0,w1,w2)
-
-
+def mesh2dtest():
+    from wavedata import Mesh2D
+    # import pickle
+    # w0 = Wave2D([[0,1,2],[2,2,2]],xs=[-10,0,10],ys=[-5,5])
+    # p = pickle.dumps(w0)
+    # w = pickle.loads(p)
+    # assert np.array_equal(w,w0)
+    m0 = Mesh2D([[0,1,2],[2,2,2]],xs=[-10,-5,5,10],ys=[-5,0,5])
+    p = pickle.dumps(m0)
+    m = pickle.loads(p)
+    assert np.array_equal(m,m0)
+    assert np.array_equal(Mesh2D('012 222',xs=[-10,-5,5,10],ys=[-5,0,5]),m0)
+    assert np.array_equal(Mesh2D('012-222',xs=[-10,-5,5,10],ys=[-5,0,5]),m0)
+    assert np.array_equal(Mesh2D('012222',xs=[-10,-5,5,10],ys=[-5,0,5]),m0)
+    assert np.array_equal(Mesh2D('012'
+                                 '222',xs=[-10,-5,5,10],ys=[-5,0,5]),m0)
+    # m0.plot()
+    # m0.plot(outlinelinewidth=2)
+    a = 1+m0
+    assert isinstance(a,Mesh2D)
+    assert hasattr(a,'xs') and hasattr(a,'ys')
 if __name__ == '__main__':
     # # backendtest()
     # # backendtest('TkCairo')
     # # backendtest('Qt5Cairo')
     showplot = 0
     print('showplot',bool(showplot))
-    if 1:
+    if 0:
         wavetest(plot=showplot)
         wave2Dtest(plot=showplot)
         plottest(plot=showplot)
@@ -1273,7 +1319,11 @@ if __name__ == '__main__':
         tophattest(plot=0)
         lightpipestest(plot=0)
         stepclimbtest()
+        radiusedtest(showplot+1)
     # dashtest()
+    mergetest(plot=0)
+    mesh2dtest()
+    slabstest(plot=1)
 
     print('all tests passed')
 

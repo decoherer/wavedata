@@ -39,7 +39,7 @@ def markerlist(waves,m):
     m = m if hasattr(m,'__len__') else 'o' if 1==m else m if m else '' # 'osD*x+' '$\\clubsuit$','$\\spadesuit$','$\\odot$','$\\oplus$'
     hmarker = MarkerStyle("d")
     hmarker._transform.rotate_deg(90) # or use hmarker._transform.scale(1.0, 0.6)
-    replacements = {'"':'',' ':'',
+    replacements = {'"':'',' ':'','-':'_',
         'v':MarkerStyle("d"),'h':hmarker,
         'V':MarkerStyle("d"),'H':hmarker,
         'C':'$\\clubsuit$','S':'$\\spadesuit$',
@@ -54,11 +54,12 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         m='',l=0,c=None,mf=1,li=1,ms=4,lw=1.5,mew=None,
         fill=False,fillbetween=False,g=None,seed=None,showseed=False,
         x=None,y=None,xlabel=None,ylabel=None,xlim=(None,None),ylim=(None,None),
-        rightwaves=[],rightlabel=None,rightlim=(None,None),save=None,savefolder='figs',legendtext=None,legendreverse=False,pause=True,groupsize=None,
+        rightwaves=[],rightlabel=None,rightlim=(None,None),save=None,savefolder='figs',title=None,
+        legendtext=None,legendreverse=False,pause=True,groupsize=None,capstyle=None,
         swap=False,scale=1.0,size=None,showsize=False,dpi=300,corner=None,xphase=False,fewerticklabels=False,
-        xticks=None,xticklabels=None,yticks=None,yticklabels=None,clip=True,marg=None,
+        xticks=None,xticklabels=None,yticks=None,yticklabels=None,secondaryxaxis=[],clip=True,marg=None,
         aspect=None,show=True,grid=False,colormap=None,vmin=None,vmax=None,levels=None,
-        sort=False,connectgaps=False,axes=True,disable=False,darken=0,clickcoords=False,
+        sort=False,connectgaps=False,frame=True,framelw=None,axes=True,disable=False,darken=0,clickcoords=False,
         zerox=False,zeroy=False,xzero=False,yzero=False,stem=False,bar=False,barwidth=0.8,errorbars=[],abbrev=False,
         fixnans=False,legendalpha=0.0,getplt=False,savepy=True,**kwargs):
     # fork process so computations can continue while plot is shown
@@ -77,8 +78,9 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         # print('import plot; plot.plot(**',{**{k:v for k,v in args.items() if k not in ('kwargs','fork')},**args['kwargs']},')')
         if not os.path.isfile(pyfile):
             os.makedirs(os.path.dirname(pyfile), exist_ok=True)
-        with open(pyfile,'w') as f:
-            f.write('import plot; from wavedata import Wave; plot.plot(**'+str({**{k:v for k,v in args.items() if k!='kwargs'},**args['kwargs'],'fork':0,'savepy':0})+')')
+        with open(pyfile,'w',encoding='utf‑8') as f:
+            s = str({**{k:v for k,v in args.items() if k!='kwargs'},**args['kwargs'],'fork':0,'savepy':0}) # print(s)
+            f.write('import plot; from wavedata import Wave; plot.plot(**'+s+')')
     # print('waves after fork',[hasattr(w,'m') for w in waves])
     c = colorlist(waves,c)
     l = linestylelist(waves,l)
@@ -92,6 +94,7 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
     # unexplicit kwargs: font,fontsize,log,loglog,fewerticks,linewidth,legendfontsize
     log,loglog,logx = kwargs.pop('log',False), kwargs.pop('loglog',False), kwargs.pop('logx',False)
     legendfontsize = kwargs.pop('legendfontsize',kwargs.get('fontsize',12))
+    titlefontsize = kwargs.pop('titlefontsize',legendfontsize)
     block = kwargs.pop('block',True)
     if fixnans:
         waves = [w.removenans() for w in waves]
@@ -99,6 +102,10 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         assert not np.any(np.isinf(w.y)), 'plotted waves connot contain inf'
     # https://matplotlib.org/3.1.1/tutorials/text/mathtext.html#symbols
     # https://matplotlib.org/3.1.1/api/markers_api.html#module-matplotlib.markers # diamond = [(0,5),(5,0),(0,-5),(-5,0),(0,5)] (size is normalized)
+
+    import matplotlib.font_manager as fm
+    fm._get_fontconfig_fonts.cache_clear() # Clear the font cache
+    fm.fontManager.__init__() # Rebuild the font manager
 
     # matplotlib.use('Qt5Cairo') # plt.rcParams['backend'] = 'Qt5Cairo'
     plt.rcParams['keymap.quit'] = ['ctrl+w','cmd+w','q','escape']
@@ -126,7 +133,13 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
     if image is not None:
         plt.imshow(image.array().T,extent=[image.xs[0],image.xs[-1],image.ys[0],image.ys[-1]],vmin=vmin,vmax=vmax,origin='lower',interpolation='bilinear',cmap=cmap)
     if colormesh is not None:
-        plt.pcolormesh(*xxyyzz(colormesh),cmap=cmap,vmin=vmin,vmax=vmax,shading='auto')
+        def box(i,s):
+            dv = (vmax if vmax is not None else colormesh.max()) - (vmin if vmin is not None else colormesh.min())
+            return matplotlib.patches.Rectangle((0,0),1,1,facecolor=cmap(i/dv),edgecolor='black',label=s)
+        plt.pcolormesh(colormesh.xs,colormesh.ys,colormesh,cmap=cmap,vmin=vmin,vmax=vmax,shading='auto')
+        if hasattr(colormesh,'names') and colormesh.names:
+            legend_elements = [box(i,colormesh.names[i]) for i in colormesh.values()]
+            plt.legend(handles=legend_elements)#, loc='center left', bbox_to_anchor=(1, 0.5))
     if contour is not None:
         plt.contour(*xxyyzz(contour),levels=levellist(contour) if levels is None else levels,linewidths=0.5,colors='black')
     if contourf is not None:
@@ -148,8 +161,8 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
     cs = seedcolors(seed,waves,showseed,darken)
     cs = (cs*groupsize)[:groupsize] if groupsize else cs
     # colors = plt.rcParams['axes.prop_cycle'].by_key()['color'] if colors[0] is None else colors # usage: color=colors[n%len(colors)]
-    xlim = (min([w.x.min() for w in waves]),max([w.x.max() for w in waves])) if (xlim=='f' or xlim=='flush') else (0,None) if 0==xlim else (0,xlim) if not hasattr(xlim,'__len__') else xlim
-    ylim = (min([w.y.min() for w in waves]),max([w.y.max() for w in waves])) if (ylim=='f' or ylim=='flush') else (0,None) if 0==ylim else (0,ylim) if not hasattr(ylim,'__len__') else ylim
+    xlim = (0,None) if xlim=='z' else (min([w.x.min() for w in waves]),max([w.x.max() for w in waves])) if (xlim=='f' or xlim=='flush') else (0,None) if 0==xlim else (0,xlim) if not hasattr(xlim,'__len__') else xlim
+    ylim = (0,None) if ylim=='z' else (min([w.y.min() for w in waves]),max([w.y.max() for w in waves])) if (ylim=='f' or ylim=='flush') else (0,None) if 0==ylim else (0,ylim) if not hasattr(ylim,'__len__') else ylim
     def vline(x):
         y0,y1 = min(w.min() for w in waves),max(w.max() for w in waves)
         y0 = y0 if ylim[0] is None else min(y0,ylim[0])
@@ -185,7 +198,7 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         m0 = m[n%len(m)] if m else m # m0 = m[ny%len(m)] if m else m
         ms0 = float(ms[n%len(ms)]) if hasattr(ms,'__len__') else float(ms)
         mf0 = mf[n%len(mf)] if hasattr(mf,'__len__') else mf
-        mf0 = ('#ffffff'+2*mf0 if mf0 in '23456789abcdef' else (c0 if '1'==mf0 else '#ffffff')) if isinstance(mf0,str) else addalpha(c0,mf0) # print('mf0',mf0)
+        mf0 = ('#ffffff00' if mf0 in ' -_' else '#000000'+2*mf0 if mf0 in '23456789abcdef' else (c0 if '1'==mf0 else '#ffffff')) if isinstance(mf0,str) else addalpha(c0,mf0) # print('mf0',mf0)
         mew0 = float(mew[n%len(mew)]) if hasattr(mew,'__len__') else float(mew)
         # m0,nl,mf0,li0 = m[n%len(m)] if m else '', int(l[n%len(l)]) if l else n%len(ls), int(mf[n%len(mf)]) if mf else 1, int(li[n%len(li)]) if li else 1 # print(c0,m0,l0,mf0,li0,lw0)
         if errorbars:
@@ -210,10 +223,12 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         else:
             try:
                 line = plt.plot(wx,w,label=names[n] if 1==li0 else'',clip_on=clip,zorder=3,
-                    marker=m0,linestyle=l0,color=c0,markersize=ms0,linewidth=lw0,mfc=mf0,mec=c0,mew=mew0,gapcolor=None,**kwargs)
+                    marker=m0,linestyle=l0,color=c0,markersize=ms0,linewidth=lw0,mfc=mf0,mec=c0,mew=mew0,gapcolor=None,
+                    solid_capstyle=capstyle,dash_capstyle=capstyle,**kwargs)
             except:
                 line = plt.plot(wx,w,label=names[n] if 1==li0 else'',clip_on=clip,zorder=3,
-                    marker=m0,linestyle=l0,color=c0,markersize=ms0,linewidth=lw0,mfc=mf0,mec=c0,mew=mew0,**kwargs)
+                    marker=m0,linestyle=l0,color=c0,markersize=ms0,linewidth=lw0,mfc=mf0,mec=c0,mew=mew0,
+                    solid_capstyle=capstyle,dash_capstyle=capstyle,**kwargs)
         if 1<li0:
             labelinline += [[line[0],names[n],li0]]
         # TODO marker zorder: plt.scatter(wx,w,zorder=2.1,linestyle=ls[l0][1],marker=m0,label=None,color=c0,s=ms0,**(kwargs if mf0 else {**kwargs,'facecolors':'white'}))
@@ -242,6 +257,8 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         ax2.set_ylim(*rightlim)
         plt.sca(ax1) # set current axis back to y-left
 
+
+
     if legendtext or any(hasattr(w,'name') and w.name for w in waves):
         hs,_ = plt.gca().get_legend_handles_labels()
         cornerlist = ['best', 'upper right', 'upper left', 'lower left', 'lower right', 'right', 'center left', 'center right', 'lower center', 'upper center', 'center']
@@ -251,6 +268,8 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
             framealpha=legendalpha,title=legendtext if hs else '',loc=corner,
             prop={'size':(legendfontsize if legendfontsize else 12)}) #,loc='upper right',loc='center left',loc='upper center',loc='center',frameon=False
         leg._legend_box.align = 'left'
+    if save:
+        plt.title(title,pad=10,fontsize=titlefontsize) if title is not None else plt.title(save,pad=10,fontsize=titlefontsize)
     if grid:
         if 2==grid:
             plt.grid(True, which='major', linestyle='-', color='0.85')
@@ -297,6 +316,10 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         plt.subplots_adjust(*marg)
     elif marg is not None:
         plt.subplots_adjust(marg,marg,1-marg,1-marg)
+    if not frame:
+        [plt.gca().spines[s].set_visible(False) for s in 'top right bottom left'.split()]
+    if framelw:
+        [plt.gca().spines[s].set_linewidth(framelw) for s in 'top right bottom left'.split()]
     if not axes:
         plt.axis('off')
         plt.tight_layout()
@@ -313,6 +336,18 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
             fig.set_size_inches(fig.get_size_inches())
             plt.gca().set_aspect('auto')
     f = zoom_factory(plt.gca()) # enable mouse zoom
+
+    if secondaryxaxis:
+        f,g,name,*secondaryxaxis2 = secondaryxaxis
+        ax = plt.gca()
+        ax2 = ax.secondary_xaxis("top", functions=(f,g))
+        ax2.set_xlabel(name)
+        ax2.minorticks_on()
+        if secondaryxaxis2:
+            f,g,name = secondaryxaxis2
+            ax3 = ax.secondary_xaxis(1.15, functions=(f,g))
+            ax3.set_xlabel(name)
+            ax3.minorticks_on()
 
     if clickcoords:
         def onclick(event):
@@ -352,34 +387,36 @@ def defaultcolors():
     cc232 = ['#5c5f46', '#ff7044', '#66aeaa', '#ffce39']
     cc242 = ['#bbd444', '#fcd744', '#fa7b53', '#423c6f']
     coolors = [ # from coolors.co
-    ["#9aa0a8","#a7c4b5","#a9d8b8","#72705b","#8b6220","#720e07","#45050c","#273c2c","#0d5c63","#236b71"],
-    # ["#e5c1bd","#d2d0ba","#b6be9c","#7b9e87","#5e747f","#32373b","#4a5859","#c83e4d","#414535"],
-    ["#090c08","#474056","#757083","#8a95a5","#b9c6ae","#f9eae1","#d1be9c","#ffbfb7","#ffd447","#a1cdf4"],
-    ["#01161e","#124559","#598392","#aec3b0","#eff6e0","#d4c5c7","#dad4ef","#65532f","#736342","#807153"],
-    ["#780116","#f7b538","#db7c26","#d8572a","#c32f27","#044389","#7cafc4","#5995ed","#9fb8ad","#475841"],
-    ["#c9cba3","#ffe1a8","#e26d5c","#723d46","#472d30","#004777","#1d2f6f","#8390fa"],
-    ["#d5573b","#885053","#777da7","#94c9a9","#c6ecae","#08090a","#f4f7f5","#222823"],
-    ["#331832","#694d75","#1b5299","#9fc2cc","#f1ecce","#cea07e","#edd9a3","#e2e8c0"]]
+        ["#9aa0a8","#a7c4b5","#a9d8b8","#72705b","#8b6220","#720e07","#45050c","#273c2c","#0d5c63","#236b71"], # seed=27
+        # ["#e5c1bd","#d2d0ba","#b6be9c","#7b9e87","#5e747f","#32373b","#4a5859","#c83e4d","#414535"],
+        ["#090c08","#474056","#757083","#8a95a5","#b9c6ae","#f9eae1","#d1be9c","#ffbfb7","#ffd447","#a1cdf4"],
+        ["#01161e","#124559","#598392","#aec3b0","#eff6e0","#d4c5c7","#dad4ef","#65532f","#736342","#807153"],
+        ["#780116","#f7b538","#db7c26","#d8572a","#c32f27","#044389","#7cafc4","#5995ed","#9fb8ad","#475841"],
+        # ["#c9cba3","#ffe1a8","#e26d5c","#723d46","#472d30","#004777","#1d2f6f","#8390fa"],
+        ["#d5573b","#885053","#777da7","#94c9a9","#c6ecae","#08090a","#f4f7f5","#222823"],
+        ["#331832","#694d75","#1b5299","#9fc2cc","#f1ecce","#cea07e","#edd9a3","#e2e8c0"]]
     a = [seaborn, msofficetheme1,
-    empusa_,roygbiv_warm_,verena,rag_mysore,roygbiv_toned_,tundra3_,iiso_daily_,kov_04_,kov_06_,tricolor,olympia,cc232,cc242,
-    # ['#3f3d99','#993d71','#998b3d','#3d9956','#3d5a99','#993d90','#996d3d','#43993d','#3d7999','#843d99','#994e3d','#62993d','#3d9799','#653d99','#993d4b'], #seed=15
-    ['#3f3d99','#993d71','#998b3d','#3d9956','#3d5a99','#993d90','#996d3d','#43993d','#3d7999','#843d99','#994e3d','#62993d'], #seed=15
-    ['#575757','#a41b0b','#311b10','#cabb9c','#cf9807','#1b4129','#204f6d','#142551','#a89ab3','#856b74','#7c0818'], #seed=16
-    ['#807f7f','#cb837f','#683e35','#cdaf9a','#493d33','#c1b493','#b2b990','#759381','#92a1ab','#575859','#435772'],
-    # ['#9f2520','#a84e2c','#3e1e0f','#f1c0a2','#d67936','#d3b96f','#717f8c','#3f4f5f','#2b3d61','#4c2d32'],
-    ['#740d06','#ad5000','#e7a312','#2a6a1e','#bad5dd','#1f82bb','#a38fc0','#251d2a','#f00002'],
-    ['#681108','#dc6707','#efc600','#a3c1e5','#505ea5','#988dcf','#270d1a','#de88a3','#b8223f'],
-    # ['#3b2d2a','#5d2f20','#88441d','#a48533','#dee3ad','#adc5ab','#69868c','#666769','#848283'],
-    # ['#d2bbaf','#686d44','#9daf7c','#566f64','#869799','#6c757b','#647e91','#9b8f94'],
-    # ['#be4d00','#e17e18','#d3cf74','#aeb0a5','#9cb057','#457357','#29475f','#26457b','#14295e','#a8a2ce'],
-    # ['#bc7933','#81490c','#3f4c42','#658b6e','#8a80a2','#371e54','#5d4c70'],
-    ['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'],
-    ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'],
-    ['#405e73','#80bfe6','#2e8c2e','#8f8c45','#d9994d','#d9b366','#fadb96'],
-    ['#9e0242','#e85c47','#fdbf70',darker('#fffebe',0.85),'#bee59f','#54adaf','#5f4fa2'], # seed=23
-    ['#e00707','#a10000','#a15000','#a1a100','#416600','#008141','#008282','#005682','#000056','#6a006a','#77003c','#2b0057'],
-    *coolors,
-    ]
+        empusa_,roygbiv_warm_,verena,rag_mysore,roygbiv_toned_,tundra3_,iiso_daily_,kov_04_,kov_06_,tricolor,olympia,cc232,cc242,
+        # ['#3f3d99','#993d71','#998b3d','#3d9956','#3d5a99','#993d90','#996d3d','#43993d','#3d7999','#843d99','#994e3d','#62993d','#3d9799','#653d99','#993d4b'], #seed=15
+        ['#3f3d99','#993d71','#998b3d','#3d9956','#3d5a99','#993d90','#996d3d','#43993d','#3d7999','#843d99','#994e3d','#62993d'], #seed=15
+        ['#575757','#a41b0b','#311b10','#cabb9c','#cf9807','#1b4129','#204f6d','#142551','#a89ab3','#856b74','#7c0818'], #seed=16
+        ['#807f7f','#cb837f','#683e35','#cdaf9a','#493d33','#c1b493','#b2b990','#759381','#92a1ab','#575859','#435772'],
+        # ['#9f2520','#a84e2c','#3e1e0f','#f1c0a2','#d67936','#d3b96f','#717f8c','#3f4f5f','#2b3d61','#4c2d32'],
+        ['#740d06','#ad5000','#e7a312','#2a6a1e','#bad5dd','#1f82bb','#a38fc0','#251d2a','#f00002'],
+        ['#681108','#dc6707','#efc600','#a3c1e5','#505ea5','#988dcf','#270d1a','#de88a3','#b8223f'],
+        # ['#3b2d2a','#5d2f20','#88441d','#a48533','#dee3ad','#adc5ab','#69868c','#666769','#848283'],
+        # ['#d2bbaf','#686d44','#9daf7c','#566f64','#869799','#6c757b','#647e91','#9b8f94'],
+        # ['#be4d00','#e17e18','#d3cf74','#aeb0a5','#9cb057','#457357','#29475f','#26457b','#14295e','#a8a2ce'],
+        # ['#bc7933','#81490c','#3f4c42','#658b6e','#8a80a2','#371e54','#5d4c70'],
+        ['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'],
+        ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00',darker('#ffff33'),'#a65628','#f781bf','#999999'],
+        ['#405e73','#80bfe6','#2e8c2e','#8f8c45','#d9994d','#d9b366','#fadb96'],
+        ['#9e0242','#e85c47','#fdbf70',darker('#fffebe',0.85),'#bee59f','#54adaf','#5f4fa2'], # seed=23
+        ['#e00707','#a10000','#a15000','#a1a100','#416600','#008141','#008282','#005682','#000056','#6a006a','#77003c','#2b0057'],
+        ['#ff625e','#ed7b00','#b49f00','#00bc6c','#00abec','#6e9aff','#c770ff','#ff41d0'], # https://bramcohen.com/p/a-simple-color-palette
+        ['#bf001e','#9a4e00','#746600','#007a44','#006e9a','#1542ff','#9101ce','#ae008b'],
+        *coolors,
+        ]
     return a
 def seedcolors(seed,ws,showseed,darken):
     sd = [ord(c) for c in seed] if isinstance(seed,str) else seed
@@ -691,7 +728,7 @@ def colortest():
         for n,cs in enumerate(dc[i:j if j is not None else len(dc)]):
             print(i+n,len(cs),' '.join(cs))
             ws += [(w-0.08*k+i+n).setplot(c=c) for k,c in enumerate(cs)]
-        Wave.plots(ws,lw=4,xlim='f',fewerticks=9)
+        Wave.plots(ws,lw=4,xlim='f',fewerticks=9,scale=(0.5,2))
 def watermarktest(file='pmc.png'):
     watermark_data = 'This is a machine-readable watermark.'
     image_with_watermark = add_custom_watermark(file, watermark_data)
@@ -705,7 +742,10 @@ def findwatermark(file):
     from PIL import Image
     decoded_data = read_qr_code(Image.open(file),77)
     print(decoded_data[0].data.decode('utf-8') if decoded_data else '-qr code not found-')
-
+def topaxistest():
+    from wavedata import Wave
+    secondaryxaxis = [lambda x: np.sqrt(x),lambda x: x**2,'√x'] + [lambda x:2*x,lambda x:0.5*x,'2x']
+    Wave([1,2,3,4],[1,2,3,4]).plot(grid=1,secondaryxaxis=secondaryxaxis,fork=0)
 
 if __name__ == '__main__':
     # multiplotdemo()
@@ -714,3 +754,4 @@ if __name__ == '__main__':
     print(len(defaultcolors()))
     # watermarktest()
     # findwatermark("c:/py/work/sell/figs/modifieddiffusiontest.png")
+    # topaxistest()

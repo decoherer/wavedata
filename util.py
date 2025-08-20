@@ -335,9 +335,26 @@ def loadvna(file,folder='',sheet=0):
     return s11,s12,s21,s22
 def nploadfile(file,dtype=None,delimiter='\t',skip=0):
     return np.array(np.genfromtxt(file, dtype=dtype, delimiter=delimiter, names=True, skip_header=skip).tolist())
+def npsavecsv(arrays,names,names2=None,filename='tmp.csv',delimiter=','):
+    with open(filename, 'w') as f:
+        f.write(delimiter.join(names)+'\n')
+        if names2 is not None:
+            f.write(delimiter.join(names2)+'\n')
+        for row in zip(*arrays):
+            f.write(delimiter.join([str(x) for x in row])+'\n')
+        
 def track(iter,f="{:g}",end=' '): # usage: [f(n) for n in track(ns)] instead of [f(n) for n in ns]
     for i in iter:
-        print(i if hasattr(i,'__len__') else f.format(i),end=end)
+        try:
+            print(i if hasattr(i,'__len__') else f.format(i),end=end)
+        except:
+            print('.',end=end)
+        yield i
+    print()
+def batchtrack(a,batch=10):
+    da = 10
+    for k,i in enumerate(a):
+        if k%da==0: print('.'+' '*((k//da+1)%10==0)+'\n'*((k//da+1)%100==0),end='')
         yield i
     print()
 def percenttrack(a):
@@ -349,7 +366,7 @@ def percenttrack(a):
         yield i
     print()
 def list2str(a,f='{:g}',sep=' '): # e.g. print(list2str([1,2,3],f='{:.1f}',sep='#')) # 1.0#2.0#3.0
-    if not a: return ''
+    if 0==len(a): return ''
     if hasattr(a[0],'__len__') and not isinstance(a[0],str):
         aa = [f"({list2str(ai,f,sep=',')})" for ai in a]
         return sep.join((len(aa)*['{}'])).format(*aa)
@@ -371,12 +388,11 @@ def loadcsv(file,verbose=False,**kwargs):
     import pandas as pd
     df = pd.read_csv(file,**kwargs)
     if verbose:
-        print(df)
-        print(df.shape)
-        print(df.index)
-        print(df.columns)
-        name0 = df.columns[0]
-        print(df[name0])
+        print('df',df)
+        print('df.shape',df.shape)
+        print('df.index',df.index)
+        print('df[df.columns[0]]',list(df[df.columns[0]]))
+        print('df.columns',df.columns)
     return df
 def findxgivenf(f,x0,x1,dx=None,maxiter=None,dxonlast=True): # find x0<x<x1 such that f(x)=0, must have f(x0)*f(x1)<0
     from functools import lru_cache
@@ -480,13 +496,22 @@ def logrange(x0,x1,res=1):
     e0,e1 = np.floor(np.log10(x0)),np.ceil(np.log10(x1))+1
     a = [x*10**n for n in wrange(e0,e1) for x in levels[:-1]]
     return np.array([ai for ai in a if x0<=ai<=x1])
-def wrange(x0,x1,dx=1,endround=False,endpoint=True,wave=False,array=True,aslist=False,tol=1e-6,reversed=False):
+def logrounddown(x):
+    f = np.floor(np.log10(x))
+    c = max([z for z in [1,2,5] if z<=x/10**f])
+    # print(x,10**f,x/10**f,c,c * 10**f)
+    return c * 10**f
+def wrange(x0,x1,dx=1,endround=False,endpoint=True,wave=False,array=True,aslist=False,tol=1e-9,reverse=False):
     x0,x1 = (round(x0/dx)*dx,round(x1/dx)*dx) if endround else (x0,x1)
-    assert x0<=x1, f"wrange requires x0<x1 x0:{x0:g} x1:{x1:g}"
+    # assert x0<=x1, f"wrange requires x0<x1 x0:{x0:g} x1:{x1:g}"
+    if x1<x0:
+        return wrange(x1,x0,dx=dx,endround=endround,endpoint=endpoint,wave=wave,array=array,aslist=aslist,tol=tol,reverse=reverse)[::-1]
     n = int(round((x1-x0)/dx))
     assert abs(x1-x0-n*dx) < tol*dx, f'wrange invalid spacing given tolerance, x1-x0:{x1-x0} dx:{dx} n:{n} x1-x0-n*dx:{abs(x1-x0-n*dx)}'
     # return evenly spaced points between x0 and x1 inclusive, with closest step possible to dx
-    xs = np.linspace(x0,x1,n+1)
+    # xs = np.linspace(x0,x1,n+1)
+    xs = np.array([float(f"{x:g}") for x in np.linspace(x0,x1,n+1)])
+    assert np.abs(xs-np.linspace(x0,x1,n+1)).max()<tol, f'wrange failed to round to tolerance {tol}: {tol}<{xs-np.linspace(x0,x1,n+1)}'
     xs = xs if endpoint else xs[:-1]
     from wavedata import Wave
     return Wave(xs,xs) if True==wave else xs if (array and not aslist) else list(xs)
@@ -752,18 +777,16 @@ def pdfsample(xs,ys=None,debug=False):
         Wave.plots(w,ww)
     return invcdf(np.random.random()*area)
 def interpolate1d(x,xs,ys,kind='linear',extrapolate=None,checkvalidity=False):
-    # kind: linear nearest nearest-up zero slinear quadratic cubic previous next
-    # see scipy.interpolate.interp1d
+    # kind: linear nearest nearest-up zero slinear quadratic cubic previous next # see scipy.interpolate.interp1d
     from scipy.interpolate import interp1d
+    if len(xs)<2:
+        return 0*x + ys[0]
     if not xs[0]<xs[-1]:
         xx = [x for x in xs if not np.isnan(x)]
         if not xx[0]<xx[-1]:
             xs,ys = xs[::-1],ys[::-1]
     def valid(xs): # 𝒪(1) monte carlo validity check
         from random import randrange
-        if 1==len(xs):
-            assert 0, 'need to implement interpolate1d for size one '
-            return True
         i = randrange(0,len(xs)-1)
         # if not xs[i]<=xs[i+1]: print(i, xs[i], xs[i+1], xs[i]<=xs[i+1])
         return xs[i]<=xs[i+1] or np.isnan(xs[i]) or np.isnan(xs[i+1])
@@ -899,7 +922,7 @@ def timeit(func): # decorator
     from time import time
     def f(*args, **kwargs):
         t0,result = time(),func(*args, **kwargs)
-        print(f" {func.__name__}: {sec2hms(time()-t0)}")
+        print(f" {func.__name__ if hasattr(func,'__name__') else func.__class__.__name__}: {sec2hms(time()-t0)}")
         return result
     return f
 def profile(func,ntop=20): # decorator

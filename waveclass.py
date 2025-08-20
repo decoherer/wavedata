@@ -1,46 +1,64 @@
-
-import pandas as pd
 import numpy as np
-from numpy import sqrt,pi,nan,inf,sign,exp,log,sin,cos,floor,ceil
-from util import sincsqr,sincsqrcurvefit,coscurvefit,cosfitfunc,fourierintegral,quadfit,lerp
-
-class Wave(pd.Series):
+from util import sincsqr,sincsqrcurvefit,coscurvefit,cosfitfunc,fourierintegral,quadfit,lerp,interpolate1d
+class Wave(np.ndarray):
     """
     Data structure similar to Igor Pro's wave (https://www.wavemetrics.net/doc/igorman/II-05%20Waves.pdf)
     containing both x values and y values like the data in an x-y plot. Acts as a numpy array of y values,
     but also has an array of x values of the same length to accompany it that are used in operations where
     appropriate e.g. wave.area(). x values are equal to np.arange(len(yvalues)) if unspecified.
     """
-    def __init__(self, data=None, index=None, name=None, dtype=None, copy=False, fastpath=False, **kwargs):
-        if isinstance(data, (int, float, complex)) and index is None:
-            data = np.zeros(data)
-        if data is None and index is not None:
-            data = index # create a wave that's just an x wave, ie. wx = Wave(index=[0,1,2])
-        if isinstance(data,Wave) and index is None:
-            super(Wave, self).__init__(data=data, index=data.x, dtype=type(data[0]), name=name, copy=copy, fastpath=fastpath)
-        # super(Wave, self).__init__(data=data, index=index, dtype=float, name=name, copy=copy, fastpath=fastpath)
-        # print(data,type(data),data[0] if hasattr(data,'__len__') else 0)
-        try:
-            assert any([isinstance(d,complex) for d in data])
-            super(Wave, self).__init__(data=data, index=index, dtype=complex, name=name, copy=copy, fastpath=fastpath) # support complex dtype
-        except:
-            super(Wave, self).__init__(data=data, index=index, dtype=float, name=name, copy=copy, fastpath=fastpath)
-        # if hasattr(data,'name') and name is None: self.name = None # erase name after operation?
-        for k,v in kwargs.items():
-            setattr(self,k,v)
-    def __getitem__(self, p): # we want Wave to act like a list, not a dict like in Series
-        try:
-            if isinstance(p,slice):                             # seems to have fixed complex wave w being cast to float in w[:] operation
-                return Wave( pd.Series(self).iloc[p] ).copy()   # but still a mystery why type(w.iloc[:][0])==<class 'numpy.float64'>
-            return self.iloc[p]
-        except pd.core.indexing.IndexingError:  # matplotlib counts on IndexError being raised, whereas pandas raises IndexingError
-            raise IndexError
+    def __new__(cls,a=10,xs=None,name='',**kwargs):
+        assert 'index' not in kwargs
+        if not isinstance(a,np.ndarray) and not isinstance(a,list) and not isinstance(a,tuple):
+            a = np.zeros(len(xs)) if xs is not None else np.zeros(a)
+        obj = np.asarray(a).view(cls)
+        obj.name = name
+        if xs is not None:
+            obj.x = np.array(xs)
+        elif isinstance(a,Wave):
+            obj.x = a.x
+        else:
+            obj.x = np.arange(len(obj))
+        for k,v in kwargs.items(): setattr(obj,k,v)
+        return obj
+    # def __array_wrap__(self,out,context=None): # need to implement using __array_ufunc__ if this gets deprecated
+    #     out.x,out.name = self.x,self.name # print('wrapping self:'+str(self)+' out:'+str(out))
+    #     return out
+    def __array_finalize__(self,out):
+        if out is None:
+            return
+        self.name = getattr(out, 'name', '')
+        self.x = getattr(out, 'x', np.arange(len(self)))
+        # for attr in out.__dict__.keys(): setattr(self, attr, getattr(out, attr, None))
+    def __reduce__(self):
+        pickled_state = super().__reduce__()
+        additional_state = (self.name, self.x, self.__dict__)
+        return (pickled_state[0], pickled_state[1], pickled_state[2] + additional_state)
+    def __setstate__(self, state):
+        self.name = state[-3]
+        self.x = state[-2]
+        self.__dict__.update(state[-1])
+        super().__setstate__(state[:-3])
+    def __getslice__(self,i,j): # only needed in python 2.x
+        w = super(Wave,self).__getslice__(i,j)
+        w.x = self.x.__getslice__(i,j)
+        return w
+    def __getitem__(self,index):
+        w = super(Wave,self).__getitem__(index)
+        if isinstance(index,slice): # start,stop,step = index.indices(len(self)) # start,stop,step = index.start,index.stop,index.step
+            w.x = self.x[index] # #print('slicing',w,w.x) # if index is a slice not a number then w is a Wave
+            w.name = self.name
+        return w
+    @property
+    def p(self): # p wave is always returned as a Wave. It has w.x for its xwave, so you can do w = 10*w.p without losing w.x. Also w += 10*w.p and w = 10*w.p should be similar.
+        return Wave(np.arange(len(self)),self.x)
+    @property
+    def xwave(self):
+        return Wave(self.x,self.x)
     def __setitem__(self, p, val): # https://stackoverflow.com/questions/31282764/when-subclassing-a-numpy-ndarray-how-can-i-modify-getitem-properly
-        if not isinstance(p,slice) and int(p)==p: p=int(p)
-        self.iloc[p] = val # sets val at iloc
+        super().__setitem__(p, val)
     def __call__(self,x,x1=None,extrapolate=None):
         if x1 is not None:
-            # p0,p1 = nudge(self.p(x)),nudge(self.p(x1))
             p0,p1 = self.x2p(x),self.x2p(x1)
             p0,p1 = 0 if np.isnan(p0) else p0, len(self)-1 if np.isnan(p1) else p1
             return self[int(np.ceil(p0)):int(np.floor(p1))+1]
@@ -49,60 +67,29 @@ class Wave(pd.Series):
         return self.atx(x,extrapolate=extrapolate)
     def __str__(self):
         return self.wavestring()
-        return (str(np.array2string(np.array(self), threshold=19)).replace('\n','') + ' x:' + 
-                str(np.array2string(np.array(self.x), threshold=19)).replace('\n','') + self.name*bool(self.name) )
-        # def format(a): return '['+' '.join([('%.2f'%n).rstrip('0').rstrip('.') for n in a])+']'
-        # return format(self) + ' x:' + format(self.x)
     def __repr__(self):
         return str(self)
-    # https://stackoverflow.com/questions/57237906/
-    # https://pandas.pydata.org/pandas-docs/stable/development/extending.html#define-original-properties
-    _metadata = 'name c l lw li m ms mf mew'.split()
-    def getplot(self):
-        return {k:getattr(self,k) for k in self._metadata if not k=='name'} # _metadata = 'name c l lw li m ms mf mew'.split()
-    def newplot(self,override=True,**kwargs):
-        return self.copy().setplot(override=override,**kwargs)
-    def setplot(self,s='',override=True,**kwargs):
-        if s:
-            c,l,m,mf,ms,lw,mew = (list(s)+[None]*7)[0:7]
-            kwargs.update(c=c,l=l,m=m,mf=mf,ms=ms,lw=lw,mew=mew)
-        assert 'f' not in kwargs, 'use mf not f for marker fill value'
-        for k,v in kwargs.items():
-            if override or k not in self:
-                setattr(self,k,v)
-        return self
-    def sp(self,s='',override=True,**kwargs):
-        return self.setplot(s,override,**kwargs)
-    @property
-    def _constructor(self):
-        # return Wave
-        return type(self)
     @property
     def p(self):
-        return Wave(np.arange(len(self)),index=self.index)
+        return Wave(np.arange(len(self)),self.x)
     @property
     def y(self):
-        return self.values
-    @property
-    def x(self):
-        return self.index
+        return self.np
     @property
     def xwave(self):
-        return Wave(data=np.array(self.index),index=np.array(self.index))
+        return Wave(np.array(self.x),np.array(self.x))
     @property
     def ywave(self):
-        return Wave(data=np.array(self.y),name=self.name)
+        return Wave(np.array(self.y),name=self.name)
     def dx(self,exact=True):
-        deltas = np.diff(self.index)
+        deltas = np.diff(self.x)
         if exact:
             assert np.allclose(deltas, deltas[0]), 'inconsistent delta x'
-            return self.index[1]-self.index[0]
+            return self.x[1]-self.x[0]
         return np.mean(deltas)
     @property
     def np(self):
         return np.asarray(self)
-    # def array(self): # causes failure in pandas 1.0.3
-    #     return np.asarray(self)
     def ylist(self):
         return list(self.y)
     def xlist(self):
@@ -124,14 +111,31 @@ class Wave(pd.Series):
     def rename(self,name):
         self.name = name
         return self
+    def n(self,name):
+        return self.rename(name)
     def appendname(self,name):
         self.name = str(self.name) + str(name)
         return self
+
+    def getplot(self):
+        _metadata = 'name c l lw li m ms mf mew'.split()
+        return {k:getattr(self,k) for k in _metadata if not k=='name'}
+    def newplot(self,override=True,**kwargs):
+        return self.copy().setplot(override=override,**kwargs)
+    def setplot(self,s='',override=True,**kwargs):
+        if s:
+            c,l,m,mf,ms,lw,mew = (list(s)+[None]*7)[0:7]
+            kwargs.update(c=c,l=l,m=m,mf=mf,ms=ms,lw=lw,mew=mew)
+        assert 'f' not in kwargs, 'use mf not f for marker fill value'
+        for k,v in kwargs.items():
+            if override or k not in self:
+                setattr(self,k,v)
+        return self
+    def sp(self,s='',override=True,**kwargs):
+        return self.setplot(s,override,**kwargs)
+
     def swapxy(self):
-        return Wave(data=self.x, index=self.y, name=self.name)
-    @x.setter
-    def x(self,x): # this is what is runs when you do w.x = [1,2,3]
-        self.index = list(x)
+        return Wave(self.x, self.y, name=self.name)
     def x2p(self,x,nearest=False):
         if nearest:
             return int(np.round(np.clip( self.p(x,extrapolate='lin'), 0, len(self)-1 )))
@@ -151,36 +155,11 @@ class Wave(pd.Series):
         for i,(y0,y1) in enumerate(zip(self[:-1],self[1:])):
             if (y0<=y<=y1) or (y1<=y<=y0):
                 return lerp(y,y0,y1,self.x[i],self.x[i+1])
-        return np.NaN
-    # def addlayer(self,*ws,extrapolate=None,rtol=1e-5,atol=1e-8):
-    #     if not ws: return self
-    #     a,b = self,ws[0]
-    #     assert a.xwave.monotonicincreasing() and b.xwave.monotonicincreasing()
-    #     x,y,i,j = [],[],0,0
-    #     while i<len(a) and j<len(b):
-    #         if np.isclose(a.x[i],b.x[j],rtol=rtol,atol=atol):
-    #             x,y,i,j = x+[a.x[i]], y+[a[i]+b[j]], i+1, j+1
-    #         elif a.x[i]<b.x[j]:
-    #             x,y,i = x+[a.x[i]], y+[a[i]+b(a.x[i],extrapolate=extrapolate)], i+1
-    #         elif b.x[j]<a.x[i]:
-    #             x,y,j = x+[b.x[j]], y+[a(b.x[j],extrapolate=extrapolate)+b[j]], j+1
-    #         else:
-    #             assert 0
-    #     return Wave(y,x).addlayer(*ws[1:],extrapolate=extrapolate,rtol=rtol,atol=atol)
-    # def mergex(self,w,extrapolate=None,rtol=1e-5,atol=1e-8):
-    #     a,b = self,w
-    #     assert a.xwave.monotonicincreasing() and b.xwave.monotonicincreasing()
-    #     x,y,i,j = [],[],0,0
-    #     while i<len(a) and j<len(b):
-    #         if np.isclose(a.x[i],b.x[j],rtol=rtol,atol=atol):
-    #             x,y,i,j = x+[a.x[i]], y+[a[i]], i+1, j+1
-    #         elif a.x[i]<b.x[j]:
-    #             x,y,i = x+[a.x[i]], y+[a[i]], i+1
-    #         elif b.x[j]<a.x[i]:
-    #             x,y,j = x+[b.x[j]], y+[a(b.x[j],extrapolate=extrapolate)], j+1
-    #         else:
-    #             assert 0
-    #     return Wave(y,x,self.name)
+        return np.nan
+    def dualmergex(self,w,extrapolate=None,rtol=1e-5,atol=1e-8):
+        u = self.mergex(w,extrapolate=extrapolate,rtol=rtol,atol=atol)
+        v = w.mergex(self,extrapolate=extrapolate,rtol=rtol,atol=atol)
+        return u,v
     def mergex(self,*ws,extrapolate=None,rtol=1e-5,atol=1e-8):
         if not ws: return self
         a,b = self,ws[0]
@@ -195,24 +174,32 @@ class Wave(pd.Series):
                 x,y,j = x+[b.x[j]], y+[a(b.x[j],extrapolate=extrapolate)], j+1
             else:
                 assert 0
+        x = x + a.xlist()[i:] if i<len(a) else x + b.xlist()[j:] if j<len(b) else x
+        y = y + a.ylist()[i:] if i<len(a) else y + [a(bx,extrapolate=extrapolate) for bx in b.xlist()[j:]] if j<len(b) else y
         return Wave(y,x,self.name).mergex(*ws[1:],extrapolate=extrapolate,rtol=rtol,atol=atol)
     def addlayer(self,*ws,extrapolate=None,rtol=1e-5,atol=1e-8):
         if not ws: return self
         a = self.mergex(ws[0],extrapolate=extrapolate,rtol=rtol,atol=atol)
         b = ws[0].mergex(self,extrapolate=extrapolate,rtol=rtol,atol=atol)
-        assert np.allclose(a.xwave,b.xwave)
+        assert np.allclose(a.x,b.x)
         return (Wave(a.y,b.x,self.name)+b).addlayer(*ws[1:],extrapolate=extrapolate,rtol=rtol,atol=atol)
     def minimumlayer(self,*ws,extrapolate=None,rtol=1e-5,atol=1e-8):
         if not ws: return self
         a = self.mergex(ws[0],extrapolate=extrapolate,rtol=rtol,atol=atol)
         b = ws[0].mergex(self,extrapolate=extrapolate,rtol=rtol,atol=atol)
-        assert np.allclose(a.xwave,b.xwave)
+        assert np.allclose(a.x,b.x)
         return np.minimum(Wave(a.y,b.x,self.name),b).minimumlayer(*ws[1:],extrapolate=extrapolate,rtol=rtol,atol=atol).rename(self.name)
     def monotonicincreasing(self):
         return not np.any(-1==np.sign(self.y[1:] - self.y[:-1]))
     def monotonicx(self):
         x = self.xwave
         return x.monotonicincreasing() or x.reverse().monotonicincreasing()   
+    def makemonotonic(self,n): # n = start index
+        n0,n1,dy = n,n,self.y[n+1]-self.y[n]
+        while 0<n0 and 0 < dy * (self.y[n0]-self.y[n0-1]): n0 -= 1
+        while n1<len(self) and 0 < dy * (self.y[n1]-self.y[n1-1]): n1 += 1
+        # print('makemonotonic',n,'dy',dy,'n0',n0,'n1',n1)
+        return self[n0:n1]
     def removenonmonotonicx(self):
         inc = self.x[0]<=self.x[-1]
         ps = self.xys if inc else self.xys()[::-1]
@@ -239,7 +226,7 @@ class Wave(pd.Series):
         if monotonicx:
             y = interpolate1d(x,self.x,self.y,kind=kind,extrapolate=extrapolate,checkvalidity=checkvalidity)
             # return Wave(y,x) if hasattr(x,'__len__') else y
-            aa = (list,tuple,np.ndarray,Wave,pd.core.series.Series) # 1D iterables
+            aa = (list,tuple,np.ndarray,Wave) # 1D iterables
             if isinstance(x,aa):
                 # print(type(x),x.shape,x.size,[int(isinstance(x,a)) for a in aa])
                 if isinstance(x,np.ndarray) and 1==x.ndim: # but not Wave2D
@@ -248,7 +235,7 @@ class Wave(pd.Series):
         if 1==len(self):
             if extrapolate is not None:
                 return self.y[0]+x*0
-            return np.where(x==self.x[0], self.y[0]+x*0, np.NaN+x*0)
+            return np.where(x==self.x[0], self.y[0]+x*0, np.nan+x*0)
         @np.vectorize # ok if x is list or np.array or Wave
         def f(x):
             for i,(x0,x1) in enumerate(zip(self.x[:-1],self.x[1:])):
@@ -261,7 +248,7 @@ class Wave(pd.Series):
             elif x<=self.x[-1]<self.x[-2] or x>=self.x[-1]>=self.x[-2]:
                 x0,x1,y0,y1 = self.x[-1],self.x[-2],self[-1],self[-2]
             else:
-                x0,x1,y0,y1 = 4*[np.NaN]
+                x0,x1,y0,y1 = 4*[np.nan]
             if extrapolate in ['const','constant']:
                 return y0
             if extrapolate in ['lin','linear']:
@@ -270,8 +257,9 @@ class Wave(pd.Series):
                 return np.exp(lerp(x,x0,x1,np.log(y0),np.log(y1)))
             if extrapolate is not None:
                 return extrapolate + 0*y0 # complex waves don't work without +0*y0 ?!
-            return np.NaN
-        if isinstance(x,(list,tuple,np.ndarray,Wave,pd.core.series.Series)):
+            return np.nan
+        # if isinstance(x,(list,tuple,np.ndarray,Wave,pd.core.series.Series)):
+        if isinstance(x,(list,tuple,np.ndarray,Wave)):
             return f(x)
         try:
             return np.ndarray.item(f(x))
@@ -295,12 +283,18 @@ class Wave(pd.Series):
         return Wave(yy,xx)
     def xys(self):
         return [(x,y) for x,y in zip(self.x,self.y)]
+    def xypairs(self):
+        return self.xys()
     def subrange(self,x0,x1):
         return self[self.x2p(x0,nearest=True):self.x2p(x1,nearest=True)]
+    def sum(self):
+        return self.y.sum()
     def area(self):
         return self.y.sum()*self.dx()
     def mean(self):
         return self.y.mean()
+    def std(self):
+        return self.y.std()
     def nanmean(self):
         return np.nanmean(self.y)
     def sdev(self,ddof=0):
@@ -319,22 +313,34 @@ class Wave(pd.Series):
         return np.std(deltas)/np.sqrt(2)
     def monotony(self):
         return self.mean()/self.sdev()
+    def firstmoment(self):
+        return (self.x * self.y).sum() / self.y.sum()
+    def secondmoment(self):
+        return ((self.x-self.firstmoment())**2 * self.y).sum() / self.y.sum()
     def len(self):
         return len(self)
+    def min(self):
+        return self.y.min()
+    def max(self):
+        return self.y.max()
+    def nanmin(self):
+        return np.nanmin(self.y)
+    def nanmax(self):
+        return np.nanmax(self.y)
     def pmax(self):
-        return self.values.argmax()
+        return self.y.argmax()
     def pmin(self):
-        return self.values.argmin()
+        return self.y.argmin()
     def xmax(self):
-        # return self.idxmax()
-        return self.x.max()
+        print('warning, use maxloc() instead of xmax()')
+        return self[self.pmax()]
     def xmin(self):
-        # return self.idxmin()
-        return self.x.min()
+        print('warning, use minloc() instead of xmin()')
+        return self[self.pmin()]
     def maxloc(self,aswave=False):
-        return self[self.pmax():self.pmax()+1] if aswave else self.xmax()
+        return self[self.pmax():self.pmax()+1] if aswave else self.x[self.pmax()]
     def minloc(self,aswave=False):
-        return self[self.pmin():self.pmin()+1] if aswave else self.xmin()
+        return self[self.pmin():self.pmin()+1] if aswave else self.x[self.pmin()]
     def quadmaxlocplot(self,edgemax=False):
         w = self.quadmaxloc(aswave=1,edgemax=edgemax).setplot(m='o')
         return Wave.plots(self,w,c='00')
@@ -406,26 +412,25 @@ class Wave(pd.Series):
     def removenans(self):
         index = np.isfinite(self.y) & np.isfinite(self.x)
         return Wave(self.y[index],self.x[index],name=self.name)
-    def removeinf(self):
-        return self.removenans()
+    def removeinf(self,nanstoo=True):
+        if nanstoo:
+            return self.removenans()
+        index = ~np.isinf(self.y) & ~np.isinf(self.x)
+        return Wave(self.y[index],self.x[index],name=self.name)
     def hasdata(self):
         return any(list(np.isfinite(self.y)))
     def inf2nan(self):
         yy = self.y
-        yy[yy==-inf] = np.nan
-        yy[yy==+inf] = np.nan
+        yy[yy==-np.inf] = np.nan
+        yy[yy==+np.inf] = np.nan
         return Wave(yy,self.x,name=self.name)
     def removevalue(self,value):
         return Wave(self.y[value!=self.y],self.x[value!=self.y],name=self.name)
     def removezeros(self):
         return self.removevalue(0)
     def scalex(self,a):
-        # self.x *= a
-        # return self
         return type(self)(self.y,self.x*a,self.name)
     def shiftx(self,x):
-        # self.x += x
-        # return self
         return type(self)(self.y,self.x+x,self.name)
     def mirrorx(self):
         return type(self)(self.y[::-1],-self.x[::-1],self.name)
@@ -436,11 +441,12 @@ class Wave(pd.Series):
         fill = fill if fill is not None else np.nan
         ys = list(self.y[p:]) + [fill]*p if 0<=p else [fill]*abs(p) + list(self.y[:p])
         return Wave(ys,self.x,self.name)
-    def clipfilter(self,ymin=-inf,ymax=inf):
+    def clipfilter(self,ymin=None,ymax=None):
+        ymin,ymax = ymin if ymin is not None else -np.inf,ymax if ymax is not None else np.inf
         ind = (ymin<self.y) & (self.y<ymax) # (self.y>ymin)*(self.y<ymax) #np.logical_and( (self.y>ymin), (self.y>ymax) )
         return Wave(self.y[ind],self.x[ind],self.name)
     def morph(self,old,new): # old = list of old values, new = list of new values
-        # e.g. old=[0,1,4,inf],new=[0,2,4,4] results in 0→0,0.5→1,1→2, and all y>=4 will be clipped to 4
+        # e.g. old=[0,1,4,np.inf],new=[0,2,4,4] results in 0→0,0.5→1,1→2, and all y>=4 will be clipped to 4
         w = Wave(new,old)
         return Wave([w(y) for y in self.y],self.x)
     def smooth(self,boxsize=5,medfilt=False,pctfilt=None,savgol=True,mode=None):
@@ -473,21 +479,6 @@ class Wave(pd.Series):
         # assert self.dx()==filter.dx(), f"self.dx={self.dx()} filter.dx={filter.dx()}"
         w = Wave( np.convolve(self, filter, mode='same'), self.x )
         return np.abs(w) if abs else w
-    # def correlation(self,w,dp):
-    #     print(len(w),len(w)//2-dp//2,len(w)//2+(dp-dp//2))
-    #     p0,p1 = len(w)//2-dp//2,len(w)//2+(dp-dp//2)
-    #     # u = self.correlate(w[p0:p1])
-    #     # ux = self.xwave.correlate(w.xwave[p0:p1])
-    #     u  = np.correlate(self, w[p0:p1], mode='same')
-    #     ux = np.correlate(self.x, w.x[p0:p1], mode='same')
-    #     p0 = Wave(ux).maxloc()
-    #     # ux.plot(); exit()
-    #     # Wave(ux).plot()
-    #     # Wave(u).plot()
-    #     assert len(u)==len(ux)
-    #     Wave(Wave(u,self.dx()*(np.arange(len(u))-p0))).plot()
-    #     return u
-    #     return Wave(u,self.dx()*(np.arange(len(u))-p0))
     def correlate(self,v,normalize=True,samex=True):
         assert type(v) is Wave
         assert np.isclose(self.dx(),v.dx()), f"self.dx={self.dx()} v.dx={v.dx()}, Waves must have same x spacing"
@@ -501,13 +492,18 @@ class Wave(pd.Series):
         xs = np.linspace(self.x[0]-v.x[0],self.x[-1]-v.x[-1],n)
         w = Wave( np.correlate(self,v,mode='valid'), xs )
         return w / np.sqrt(sum(self**2)) / np.sqrt(sum(v**2)) if normalize else w
+    def removefftphaseramp(self): # translate peak to center so fft has no linear phase ramp
+        t1 = self.magsqr().maxloc()
+        t0 = self.x[::len(self)-1].mean()
+        a = self.offsetx(-(t1-t0),extrapolate='constant')
+        return Wave(np.fft.fftshift(a.y),a.x,self.name)
     def zeropad(self,scale=50,poweroftwo=True):
         def next_power_of_2(x): # https://stackoverflow.com/a/14267669
             return 1 if x == 0 else int(2**np.ceil(np.log2(x)))
         n = next_power_of_2(scale*len(self)) if poweroftwo else scale*len(self) # total length of new wave
-        n0 = (n-len(self.index))//2 # length of front padding
+        n0 = (n-len(self.x))//2 # length of front padding
         # n1 = n-len(self.index)-n0 # length of end padding
-        wx = (np.arange(0,n)-n0)*self.dx() + self.index[0]
+        wx = (np.arange(0,n)-n0)*self.dx() + self.x[0]
         w = np.zeros_like(wx,dtype=self.dtype)
         w[n0:n0+len(self)] = self
         return Wave(w,wx)
@@ -524,12 +520,12 @@ class Wave(pd.Series):
         yy,x0,dx,df = self.y,self.x[0],self.dx(),1/self.dx()
         ff = np.fft.fftshift(np.fft.fftfreq(yy.size)) * df
         aa = np.fft.fftshift(np.fft.fft(yy)) * dx
-        aa *= exp(-1j*2*np.pi*x0*ff)
+        aa *= np.exp(-1j*2*np.pi*x0*ff)
         w = Wave(aa,ff)
         if plot: w.plot(m=1,lw=1,ms=1)
         return w
     def ft(self,f,*args,**kwargs): # 5800x slower than fft()
-        return fourierintegral(self,self.x,f,*args,**kwargs) # exact fourier integral of piecewise linear function
+        return fourierintegral(self.y,self.x,f,*args,**kwargs) # exact fourier integral of piecewise linear function
     def ftwave(self,fs,*args,**kwargs):
         return Wave(self.ft(fs),fs)
     def sqr(self):
@@ -560,7 +556,9 @@ class Wave(pd.Series):
         dwdx = [ (self(x+dx/2,extrapolate=extrapolate) - 
                   self(x-dx/2,extrapolate=extrapolate))/dx for x in self.x ]
         return Wave(dwdx,self.x).differentiate(n-1,dx,extrapolate=extrapolate)
-    def cumsum(self):
+    def cumsum(self,reverse=False):
+        if reverse:
+            return Wave(self.y[::-1].cumsum()[::-1],self.x,self.name)
         return Wave(self.y.cumsum(),self.x,self.name)
     def integrate(self):
         # exact integral of piecewise linear function
@@ -765,7 +763,7 @@ class Wave(pd.Series):
         if n<2:
             return self
         ys = [np.mean(np.array(self[i*n:i*n+n])) for i in range(len(self)//n)]
-        xs = [np.mean(np.array(self.index[i*n:i*n+n])) for i in range(len(self)//n)]
+        xs = [np.mean(np.array(self.x[i*n:i*n+n])) for i in range(len(self)//n)]
         return Wave(ys,xs,name=self.name)
     def upsample(self,num=10):
         xs,ys = list(self.x),list(self.y)
@@ -792,7 +790,7 @@ class Wave(pd.Series):
         ys,xs = self.y,self.x
         if invert: raise NotImplementedError
         p0 = p0 if p0 is not None else np.argmax(ys)
-        assert ylevel<ys[p0]
+        assert ylevel<ys[p0], f'ylevel:{ylevel} ys[p0]:{ys[p0]} p0:{p0}'
         def halfwidthx(ys,xs,y0):
             assert len(ys)==len(xs) and ys[-1]<ys[0]
             for i in range(len(ys)-1):
@@ -817,7 +815,7 @@ class Wave(pd.Series):
     def choice(self,choices):
         return Wave(np.random.choice(choices,size=self.x.shape),self.x)
     def histogram(self,bins='auto',dx=None): # bins = 101, bins = [0,5,10,15,20]
-        assert np.nanmax(self)<1e9 and -1e9<np.nanmin(self), f"min:{np.nanmin(self)} max:{np.nanmax(self)}"
+        assert self.nanmax()<1e9 and -1e9<self.nanmin(), f"min:{self.nanmin()} max:{self.nanmax()}"
         if dx is not None:
             n0,n1 = int(floor(self.min()/dx)), int(ceil(self.max()/dx))
             bins = dx*np.linspace(n0,n1,n1-n0+1)
@@ -909,7 +907,7 @@ class Wave(pd.Series):
     def cosfit(self,coef=0,upsample=False,guess=(None,None,None,None),fix=(0,0,0,0)):
         p = coscurvefit(self.x,self.y,guess=guess,fix=fix)
         xs = self.upsample(10 if upsample==1 else upsample).x if upsample else self.x
-        w = Wave( cosfitfunc(xs,*p), xs )
+        w = Wave( cosfitfunc(np.array(xs),*p), xs )
         return w if 0==coef else p if 1==coef else (w,p)
     def sinfit(self,offset=0,upsample=0,coef=False,A=False):
         c = [0, self.mean(), self.quadraticfit(coef=0)][offset]
@@ -926,9 +924,11 @@ class Wave(pd.Series):
         if A:
             return (c-z0)/(c+z0)
         return c + (z.real*cos(φ) + z.imag*sin(φ)) * 2/(a.x[-1]-a.x[0])
-    def wavestring(self,round=False,name=True):
-        sy = ','.join([str(rint(y)) if round else f'{y:g}' for y in self.y])
-        sx = ','.join([str(rint(x)) if round else f'{x:g}' for x in self.x])
+    def wavestring(self,name=True,fy='{:g}',fx='{:g}'):
+        # sy = ','.join([str(rint(y)) if round else f'{y:g}' for y in self.y])
+        # sx = ','.join([str(rint(x)) if round else f'{x:g}' for x in self.x])
+        sy = ','.join([fy.format(y) for y in self.y])
+        sx = ','.join([fx.format(x) for x in self.x])
         return f"Wave([{sy}],[{sx}]" + (f",'{self.name}')" if self.name else ")")
     def pprint(self,format='g',xformat=None,yformat=None):
         sx = xformat if xformat is not None else format
@@ -940,13 +940,13 @@ class Wave(pd.Series):
                 str(np.array2string(np.array(self.x), threshold=19)).replace('\n','') + (self.name if self.name else '') )
         # def format(a): return '['+' '.join([('%.2f'%n).rstrip('0').rstrip('.') for n in a])+']'
         # return format(self) + ' x:' + format(self.x)
-
     def printwave(self,s='',type=0):
         print(s+' '+str(list(self))+' x'+str(list(self.x))+' p'+str(list(self.p)))
     def lines(self,color='k'):
         for x0,x1,y0,y1 in zip(self.x[:-1],self.x[1:],self.y[:-1],self.y[1:]):
             yield {'xdata':(x0,x1),'ydata':(y0,y1),'color':color}
-    def ballandstick(self,y0=-inf): # for plotting wave as a bar chart
+    def ballandstick(self,y0=None): # for plotting wave as a bar chart
+        y0 = y0 if y0 is not None else -np.inf
         ys = [yi for y in self.y for yi in (y0,y,nan)] # print('ys',ys)
         xs = [xi for x in self.x for xi in (x,x,nan)]
         return Wave(ys,xs,self.name).setplot(m='o',l='0')
@@ -1032,8 +1032,12 @@ class Wave(pd.Series):
     def ones(xs,*args,**kwargs):
         return 1+0*Wave(xs,xs,*args,**kwargs)
     @staticmethod
-    def fromxsandys(xs,ys,*args,**kwargs):
+    def xy(xs,ys=None,*args,**kwargs):
+        ys = ys if ys is not None else xs
         return Wave(ys,xs,*args,**kwargs)
+    @staticmethod
+    def fromxsandys(xs,ys,*args,**kwargs):
+        return Wave.xy(xs,ys,*args,**kwargs)
     @staticmethod
     def fromxypairs(xys,name=None):
         xs,ys = zip(*xys)
@@ -1041,6 +1045,23 @@ class Wave(pd.Series):
     @staticmethod
     def fromxys(xys,name=None):
         return Wave.fromxypairs(xys,name)
+    @staticmethod
+    def fromsegs(segs,name=None,nansep=True): # 1D line segments where each segment is (x0,y0,x1,y1)
+        xs = [z for x0,y0,x1,y1 in segs for z in ((x0,x1,np.nan) if nansep else (x0,x1))]
+        ys = [z for x0,y0,x1,y1 in segs for z in ((y0,y1,np.nan) if nansep else (y0,y1))]
+        return Wave(ys,xs,name)
+    @staticmethod
+    def fromtiles(tiles,tileedges,name=None): # 1D tiles, i.e. piecewise constant
+        assert len(tiles)==len(tileedges)-1
+        def doubleup(a):
+            return [x for y in a for x in (y,y)] # [0,1,2] → [0,0,1,1,2,2]
+        return Wave(doubleup(tiles),doubleup(tileedges)[1:-1],name)
+    def wave2tile(self):
+        assert all([y0==y1 for y0,y1 in zip(self.y[0::2],self.y[1::2])]) # e.g. [0,0,1,1,2,2]
+        assert all([x0==x1 for x0,x1 in zip(self.x[1:-1][0::2],self.x[1:-1][1::2])]) # e.g. [0,1,1,2,2,3]
+        ys = self.y[0::2]
+        xs = list(self.x[0::2]) + [self.x[-1]]
+        return ys,xs
     @staticmethod
     def wavesum(*ws,extrapolate='lin'):
         ws = ws[0] if isinstance(ws[0],(list,tuple)) else ws
@@ -1075,53 +1096,6 @@ class Wave(pd.Series):
         def isint(z):
             return np.isclose(z,round(z),rtol=1e-50)
         return round(z) if isint(z) else z
-    # same name allowed? no, but... # https://stackoverflow.com/q/2589690, https://stackoverflow.com/questions/28237955/, https://stackoverflow.com/questions/395735/how-to-check-whether-a-variable-is-a-class-or-not
-    # @classmethod
-    # def plot(cls,*ws,**kwargs):
-    #     return cls.plots(*ws,**kwargs,loglog=1)
-class Wavex(Wave):
-    def __init__(self, data=None, name=None, dtype=None, copy=False, fastpath=False):
-        return super(Wavex, self).__init__(data=None, index=data, name=name, dtype=dtype, copy=copy, fastpath=fastpath)
-    # @staticmethod
-    # def dashed(x0,x1,dash=(1,1),phase=0.5,dx=1):
-    #     # phase=0,0.5,1 → dash gap is right,center,left shifted within each dash cycle
-    #     # dx determines sampling
-    #     xs = np.linspace(x0,x1,int((x1-x0+0.5)/dx)+1)
-    #     return Wavex(xs,'dash')
-class Wx(Wavex):
-    pass
-class WW(Wave):
-    pass
-    def __init__(self, data=None, index=None, name=None, dtype=None, copy=False, fastpath=False, **kwargs):
-        return super(WW, self).__init__(data=data, index=index, name=name, dtype=dtype, copy=copy, fastpath=fastpath, **kwargs)
+W = Wyx = Wave
+Wxy = Wx = Wave.xy
 
-def interpolate1d(x,xs,ys,kind='linear',extrapolate=None,checkvalidity=False):
-    # kind: linear nearest nearest-up zero slinear quadratic cubic previous next
-    # see scipy.interpolate.interp1d
-    from scipy.interpolate import interp1d
-    if not xs[0]<xs[-1]:
-        xx = [x for x in xs if not np.isnan(x)]
-        if not xx[0]<xx[-1]:
-            xs,ys = xs[::-1],ys[::-1]
-    def valid(xs): # 𝒪(1) monte carlo validity check
-        from random import randrange
-        if 1==len(xs):
-            assert 0, 'need to implement interpolate1d for size one '
-            return True
-        i = randrange(0,len(xs)-1)
-        # if not xs[i]<=xs[i+1]: print(i, xs[i], xs[i+1], xs[i]<=xs[i+1])
-        return xs[i]<=xs[i+1] or np.isnan(xs[i]) or np.isnan(xs[i+1])
-    def allvalid(xs): # 𝒪(N)
-        return all([0<xi for xi in xs[1:]-xs[:-1]])
-    assert valid(xs), 'failed monte carlo check, xs must be monotonically increasing or decreasing for interpolate1d (also use checkvalidity=True)'
-    if checkvalidity: assert allvalid(xs),[xi for xi in xs[1:]-xs[:-1]]
-    assert extrapolate in [None,'lin','linear','log','logarithmic','const','constant']
-    if extrapolate in ['log','logarithmic']:
-        ys = np.log(ys)
-    fill_value = (ys[0],ys[-1]) if extrapolate in ['const','constant'] else (None if extrapolate is None else 'extrapolate')
-    with np.errstate(invalid='ignore',divide='ignore'): # print(np.geterr())
-        # suppress warnings when there are duplicate x values (eliminate dups instead?)
-        f = interp1d(xs,ys,kind=kind,fill_value=fill_value,bounds_error=False)
-        y = np.exp(f(x)) if extrapolate in ['log','logarithmic'] else f(x)
-    # return y if hasattr(x,'__len__') else np.asscalar(y)
-    return y if hasattr(x,'__len__') else y.item()

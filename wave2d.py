@@ -11,7 +11,8 @@ class Wave2D(np.ndarray):
         if xs is not None and ys is not None:
             nx,ny = len(xs),len(ys)
             if array is not None:
-                if array.size==nx*ny:
+                if array.size==nx*ny and not array.shape==(nx,ny):
+                    print(f'Wave2D input has wrong shape: {array.shape}, reshaping: ({nx},{ny})')
                     array = array.reshape((nx,ny))
                 assert (nx,ny)==array.shape, f'input array must have size (nx,ny), array:{array} nx,ny:{nx,ny} '
         else:
@@ -22,7 +23,6 @@ class Wave2D(np.ndarray):
         else:
             obj = np.zeros((nx,ny)).view(cls)
         obj.xs,obj.ys = np.asarray(xs,dtype=float),np.asarray(ys,dtype=float)
-        obj.nx,obj.ny = obj.shape
         return obj
     @classmethod
     def fromtif(cls,filename,transpose=False):
@@ -91,19 +91,39 @@ class Wave2D(np.ndarray):
     # def __array_finalize__(self, obj):
     #     if obj is None: return
     #     self.xs,self.ys = getattr(obj, 'xs', None),getattr(obj, 'ys', None)
-    def __array_wrap__(self,out,context=None):
+    def __array_wrap__(self,out,context=None,return_scalar=None):
+        if return_scalar:
+            return out.item()
         if hasattr(self,'xs') and hasattr(self,'ys') and out.shape==(len(self.xs),len(self.ys)):
             # return Wave2D(out,self.xs,self.ys)
             return type(self)(out,self.xs,self.ys)
         return np.asarray(out)
-    def __reduce__(self):  # for pickling, https://stackoverflow.com/a/26599346
-        pickled_state = super(Wave2D, self).__reduce__() # Get the parent's __reduce__ tuple
-        new_state = pickled_state[2] + (self.xs,self.ys) # Create our own tuple to pass to __setstate__
-        return (pickled_state[0], pickled_state[1], new_state) # Return a tuple that replaces the parent's __setstate__ tuple with our own
-    def __setstate__(self, state): # for pickling
-        self.xs,self.ys = state[-2],state[-1]  # Set the info attribute
-        super(Wave2D, self).__setstate__(state[0:-2]) # Call the parent's __setstate__ with the other tuple elements.
+    # def __reduce__(self):  # for pickling, https://stackoverflow.com/a/26599346
+    #     pickled_state = super(Wave2D, self).__reduce__() # Get the parent's __reduce__ tuple
+    #     new_state = pickled_state[2] + (self.xs,self.ys) # Create our own tuple to pass to __setstate__
+    #     return (pickled_state[0], pickled_state[1], new_state) # Return a tuple that replaces the parent's __setstate__ tuple with our own
+    # def __setstate__(self, state): # for pickling
+    #     self.xs,self.ys = state[-2],state[-1]  # Set the info attribute
+    #     super(Wave2D, self).__setstate__(state[0:-2]) # Call the parent's __setstate__ with the other tuple elements.
+    def __reduce__(self):
+        parent_reconstructor, parent_args, parent_state = super(Wave2D, self).__reduce__()
+        extras = {k: v for k, v in self.__dict__.items() if k not in {"xs", "ys"}}
+        new_state = parent_state + (self.xs, self.ys, extras)
+        return (parent_reconstructor, parent_args, new_state)
+    def __setstate__(self, state):
+        if isinstance(state[-1], dict): # new pickles
+            parent_state   = state[:-3]
+            xs, ys, extras = state[-3:]
+        else:                           # legacy old pickles
+            parent_state = state[:-2]
+            xs, ys       = state[-2:]
+            extras       = {}
+        super(Wave2D, self).__setstate__(tuple(parent_state))
+        self.xs, self.ys = xs, ys
+        self.__dict__.update(extras)
     def __getitem__(self, key):
+        if key == () or (isinstance(key, (tuple, list)) and len(key) == 0):
+            return np.ndarray.__getitem__(self, ()) # Let ndarray handle it so we get a Python scalar back
         if isinstance(key, tuple) or isinstance(key, list):
             kx,ky = key
             if isinstance(kx, slice) and isinstance(ky, slice):
@@ -118,6 +138,12 @@ class Wave2D(np.ndarray):
         raise TypeError('Index must be int, not {}'.format(type(key).__name__))
     def __str__(self):
         return str(self.np).replace('\n','') + ' xs' + str(np.array2string(self.xs, threshold=9)) + ' ys' + str(np.array2string(self.ys, threshold=9))
+    @property
+    def nx(self):
+        return len(self.xs)
+    @property
+    def ny(self):
+        return len(self.ys)
     @property
     def xmin(self):
         return self.xs[0]
@@ -198,13 +224,13 @@ class Wave2D(np.ndarray):
         if not horizontal: raise NotImplementedError
         return np.allclose(0*self,self + self.mirrorx(),atol=atol)
     def x2p(self,x,nearest=False):
-        return len(self.xs) if x==inf else Wave(index=self.xs).x2p(x,nearest)
+        return len(self.xs) if x==inf else Wave(self.xs,self.xs).x2p(x,nearest)
     def y2p(self,y,nearest=False):
-        return len(self.ys) if y==inf else Wave(index=self.ys).x2p(y,nearest)
+        return len(self.ys) if y==inf else Wave(self.ys,self.ys).x2p(y,nearest)
     def xsum(self):
-        return Wave(self.sum(axis=0),index=self.ys)
+        return Wave(self.sum(axis=0),xs=self.ys)
     def ysum(self):
-        return Wave(self.sum(axis=1),index=self.xs)
+        return Wave(self.sum(axis=1),xs=self.xs)
     def xlen(self):
         return len(self.xs)
     def ylen(self):
@@ -334,6 +360,9 @@ class Wave2D(np.ndarray):
         return Wave( np.nanmean(self,axis=0), self.ys )
     def yaverage(self): # average over ys, returns x-slice
         return Wave( np.nanmean(self,axis=1), self.xs )
+    def diagonal(self,axis='x'): # diagonal values vs x
+        assert self.shape[0] == self.shape[1], "Wave2D must be square for diagonal extraction"
+        return Wave( np.diagonal(np.array(self)), self.xs if 'x'==axis else self.ys )
     def xslicemax(self): # x-slice thru 2d array max
         return self.atyindex(self.maxindex()[1])
     def xslice(self,x='abs'):
@@ -519,7 +548,6 @@ class Wave2D(np.ndarray):
         # t1.slit(x0=0, size=50 * um, angle=0 * degrees)
         # u2 = u1 * t1
 
-
     def contours(self,val=None,singlewave=False):
         val = val if val is not None else 0.5*(self.min()+self.max())
         from skimage import measure
@@ -570,3 +598,97 @@ class Wave2D(np.ndarray):
         s = f', gridx=({self.xmin:g},{self.xmax:g},{self.dx:g}), gridy=({self.ymin:g},{self.ymax:g},{self.dy:g})' if gridinfo else ''
         np.savetxt(save.replace('.csv','')+s+'.csv', self, delimiter=',')
 
+class Mesh2D(np.ndarray):
+    # Mesh2D is a Wave2D with values at cell centers instead of cell vertices
+    def __new__(cls,array,xs=None,ys=None,names=None,toptobottom=True):
+        def string2grid(s):
+            seps = set([c for c in s if c not in '.0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ'])
+            if 0==len(seps):
+                assert len(s)==(len(xs)-1)*(len(ys)-1), f'array size mismatch, (nx-1)(ny-1)={len(xs)-1}x{len(ys)-1}!={len(s)}'
+                return [list(map(int,s[i*(len(xs)-1):(i+1)*(len(xs)-1)])) for i in range(len(ys)-1)]
+            assert 1==len(seps), f"expected one row separator, got {seps}"
+            # return [list(map(int,c)) for c in s.split(list(seps)[0])]
+            return [[nan if '.'==ci else ord(ci)-ord('0') for ci in c] for c in s.split(list(seps)[0])]
+        array = string2grid(array) if isinstance(array,str) else array
+        array = array[::-1] if toptobottom else array
+        array = np.array(array) if isinstance(array,(list,tuple)) else array
+        ys,xs = (np.arange(len(array)+1),np.arange(len(array[0])+1)) if xs is None else (ys,xs)
+        nx,ny = len(xs)-1,len(ys)-1
+        assert array.size==nx*ny and array.shape==(ny,nx), f'input array must have size nx*ny and shape (ny,nx), ny,nx:{ny},{nx}, shape:{array.shape}, size:{array.size}'
+        obj = np.asarray(array).view(cls)
+        obj.xs,obj.ys = np.asarray(xs,dtype=float),np.asarray(ys,dtype=float)
+        obj.names = names if isinstance(names,dict) else {i:s for i,s in zip(obj.values(),names)} if names else {}
+        return obj
+    def __array_wrap__(self,out,context=None):
+        if hasattr(self,'xs') and hasattr(self,'ys') and out.shape==(len(self.ys)-1,len(self.xs)-1):
+            return type(self)(out,self.xs,self.ys)
+        return np.asarray(out)
+    def __reduce__(self):
+        pickled_state = super(Mesh2D, self).__reduce__()
+        new_state = pickled_state[2] + (self.xs,self.ys,self.names)
+        return (pickled_state[0], pickled_state[1], new_state)
+    def __setstate__(self, state):
+        self.xs,self.ys,self.names = state[-3],state[-2],state[-1] 
+        super(Mesh2D, self).__setstate__(state[0:-3])
+    def values(self):
+        return sorted(set(self.flatten()))
+    def nameslist(self):
+        return [self.names[i] for i in self.values()]
+    def celshade(self,outeredges=False):
+        a,xs,ys = self,self.xs,self.ys
+        nx,ny = len(xs)-1,len(ys)-1
+        assert len(a)==ny and len(a[0])==nx, f'array size mismatch, {len(a)}x{len(a[0])}!={ny}x{nx}'
+        def hedge(i,j): # edge between horizontal cells (i,j) and (i+1,j)
+            x,y0,y1 = xs[i+1],ys[j],ys[j+1]
+            return (x,y0,x,y1)
+        def vedge(i,j): # edge between vertical cells (i,j) and (i,j+1)
+            x0,x1,y = xs[i],xs[i+1],ys[j+1]
+            return (x0,y,x1,y)
+        # hs = [hedge(i,j) for i in range(nx-1) for j in range(ny) if a[j][i]!=a[j][i+1]]
+        # vs = [vedge(i,j) for i in range(nx) for j in range(ny-1) if a[j][i]!=a[j+1][i]]
+        # x0,x1,y0,y1 = xs[0],xs[-1],ys[0],ys[-1]
+        # bs = [(x0,y0,x1,y0),(x0,y1,x1,y1),(x0,y0,x0,y1),(x1,y0,x1,y1)]
+        def issame(x,y):
+            return (np.isnan(x) and np.isnan(y)) or x==y
+        hs = [hedge(i,j) for i in range(nx-1) for j in range(ny) if not issame(a[j][i],a[j][i+1])]
+        vs = [vedge(i,j) for i in range(nx) for j in range(ny-1) if not issame(a[j][i],a[j+1][i])]
+        bs = ([vedge(i,j) for i in range(nx) for j in [-1] if not np.isnan(a[j+1][i])]
+            + [vedge(i,j) for i in range(nx) for j in [ny-1] if not np.isnan(a[j][i])]
+            + [hedge(i,j) for j in range(ny) for i in [-1] if not np.isnan(a[j][i+1])]
+            + [hedge(i,j) for j in range(ny) for i in [nx-1] if not np.isnan(a[j][i])])
+        return Wave.fromsegs(hs+vs+bs) if outeredges else Wave.fromsegs(hs+vs)
+    def wireframe(self,*args,**kwargs):
+        return self.celshade(*args,**kwargs)
+    def celplot(self,*args,contour=None,outlinelinewidth=1,**kwargs):
+        return self.plot(*args,contour=contour,outlinelinewidth=outlinelinewidth,**kwargs)
+    def plot(self,*args,contour=None,outlinelinewidth=None,outeredges=0,**kwargs):
+        import plot
+        ws = [self.celshade(outeredges=outeredges).sp(c='k',lw=outlinelinewidth)] if outlinelinewidth else []
+        plot.plot(waves=ws,contour=contour,colormesh=self,framelw=outlinelinewidth,capstyle='projecting',**kwargs)
+        return self
+
+if __name__ == '__main__':
+    m = Mesh2D('000 010 111 121 222',[-3,-1,1,3],[0,1,2,3,4,5],names='ABC')
+    print(m)
+    print(m.xs)
+    print(m.ys)
+    print(m.shape)
+    print('m.values',m.values())
+    print('m.nameslist',m.nameslist())
+    print('m.names',m.names)
+    # m.plot()
+    m.celplot()
+
+    # import numpy as np
+    # import matplotlib.pyplot as plt 
+    # import matplotlib.patches as mpatches
+    # vmin,vmax = 0,3
+    # data = np.random.randint(vmin, vmax+1, size=(4,6))
+    # fig, ax = plt.subplots()
+    # pcm = plt.pcolormesh(data, cmap='viridis', vmin=vmin, vmax=vmax)
+
+    # legend_elements = [mpatches.Rectangle((0, 0), 1, 1, facecolor=plt.cm.viridis(i/(vmax-vmin)), edgecolor='black', label=str(i)) for i in range(vmin,vmax+1)]
+    # ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
+    # # plt.colorbar(pcm)
+    # plt.tight_layout()
+    # plt.show()
