@@ -6,3 +6,4 @@ wavedata.egg-info
 wavenp.py
 tmp.dat
 /*.png
+ref/

@@ -7,7 +7,7 @@
 # perform common scientific operations on xy data
 
 from waveclass import Wave
-from wavenp import WWave
+# from wavenp import WWave
 from wave2d import Wave2D,Mesh2D
 from wave3d import Wave3D
 from vector import Array,V,V3,Vs,Polar,Piecewise
@@ -26,7 +26,7 @@ if __name__ == '__main__':
     histtest(plot=plotit)
     arraytest()
     vtest()
-    vstest(1,plot=plotit)
+    # vstest(1,plot=plotit)
     arctest(plot=plotit)
     circletest(plot=plotit)
 

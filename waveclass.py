@@ -24,12 +24,12 @@ class Wave(np.ndarray):
     # def __array_wrap__(self,out,context=None): # need to implement using __array_ufunc__ if this gets deprecated
     #     out.x,out.name = self.x,self.name # print('wrapping self:'+str(self)+' out:'+str(out))
     #     return out
-    def __array_finalize__(self,out):
-        if out is None:
+    def __array_finalize__(self,obj):
+        if obj is None:
             return
-        self.name = getattr(out, 'name', '')
-        self.x = getattr(out, 'x', np.arange(len(self)))
-        # for attr in out.__dict__.keys(): setattr(self, attr, getattr(out, attr, None))
+        self.name = getattr(obj, 'name', getattr(self, 'name', ''))
+        self.x = getattr(obj, 'x', np.arange(self.view(np.ndarray).shape[0] if self.ndim else 0))
+        # for attr in obj.__dict__.keys(): setattr(self, attr, getattr(obj, attr, None))
     def __reduce__(self):
         pickled_state = super().__reduce__()
         additional_state = (self.name, self.x, self.__dict__)
@@ -222,7 +222,7 @@ class Wave(np.ndarray):
             print(len(failed),'out of',len(xs),'nonmonotonic')
             Wave(xs).plot()
         return f
-    def atx(self,x,kind='linear',extrapolate=None,checkvalidity=False,monotonicx=True): #,left=None,right=None): # returns y(x) at given x, by default limited to x[0] <= x <= x[-1] unless otherwise specified by left,right
+    def atx(self,x,extrapolate=None,kind='linear',checkvalidity=False,monotonicx=True): #,left=None,right=None): # returns y(x) at given x, by default limited to x[0] <= x <= x[-1] unless otherwise specified by left,right
         if monotonicx:
             y = interpolate1d(x,self.x,self.y,kind=kind,extrapolate=extrapolate,checkvalidity=checkvalidity)
             # return Wave(y,x) if hasattr(x,'__len__') else y
@@ -315,8 +315,9 @@ class Wave(np.ndarray):
         return self.mean()/self.sdev()
     def firstmoment(self):
         return (self.x * self.y).sum() / self.y.sum()
-    def secondmoment(self):
-        return ((self.x-self.firstmoment())**2 * self.y).sum() / self.y.sum()
+    def secondmoment(self,x0=None):
+        x0 = self.firstmoment() if x0 is None else x0
+        return ((self.x-x0)**2 * self.y).sum() / self.y.sum()
     def len(self):
         return len(self)
     def min(self):
@@ -497,6 +498,29 @@ class Wave(np.ndarray):
         t0 = self.x[::len(self)-1].mean()
         a = self.offsetx(-(t1-t0),extrapolate='constant')
         return Wave(np.fft.fftshift(a.y),a.x,self.name)
+    def hg0component(self,maxiter=99):
+        def realfirstmoment(w):
+            return ((w.x * w.y).sum() / w.y.sum()).real
+        def realsecondmoment(w,x0):
+            return (((w.x-x0)**2 * w.y).sum() / w.y.sum()).real
+        x0 = realfirstmoment(self.magsqr())
+        σσx = 2*realsecondmoment(self.magsqr(),x0)
+        for i in range(maxiter):
+            g = self.gaussian(np.sqrt(σσx),x0)
+            # print('x0',x0,'σσ',σσx)
+            y0 = realfirstmoment(g*self)
+            σσy = 2*realsecondmoment(g*self,y0)
+            if (np.isclose(y0,x0) and np.isclose(σσy,σσx)) or np.isnan(y0) or np.isnan(σσy):
+                break
+            x0,σσx = y0,σσy
+        c0 = self.overlap(g)
+        return c0, np.sqrt(σσx), x0
+    def overlap(self,w):
+        assert type(w) is Wave and np.isclose(self.dx(),w.dx()), f"self.dx={self.dx()} w.dx={w.dx()}, Waves must have same x spacing"
+        return (self*w).sum() / np.sqrt(self.magsqr().sum() * w.magsqr().sum())
+    def gaussian(self,σ,x0=0):
+        return Wave( np.exp(-0.5*(self.x-x0)**2/σ**2) / np.sqrt(2*np.pi*σ**2), self.x )
+
     def zeropad(self,scale=50,poweroftwo=True):
         def next_power_of_2(x): # https://stackoverflow.com/a/14267669
             return 1 if x == 0 else int(2**np.ceil(np.log2(x)))
@@ -808,7 +832,7 @@ class Wave(np.ndarray):
         return w if getwave else np.abs(x1-x0)
     def fwhm(self,relativelevel=0.5,liberal=True,debug=0):
         return self.peakwidth(relativelevel*self.max(),liberal=liberal,invert=0,debug=debug)
-    def gaussian(self,y0=0,dy=1):
+    def gaussiannoise(self,y0=0,dy=1):
         return Wave(np.random.normal(y0,dy,size=self.x.shape),self.x)
     def random(self):
         return Wave(np.random.random(size=self.x.shape),self.x)

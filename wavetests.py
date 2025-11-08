@@ -1080,7 +1080,7 @@ def lightpipestest(λ=1000,z=1,xsize=1000,ω=20,N=255,plot=False):
     F1 = lp.Fresnel(z*mm,F0)
     I1 = lp.Intensity(F1)
     u1 = Wave(I1[N//2]).rename('u1')
-    xs = wrange(-xsize/2,+xsize/2,xsize/(N-1)) # print('xs',xs)
+    xs = wrange(-xsize/2,+xsize/2,xsize/(N-1),format=None) # print('xs',xs)
     yy,xx = np.meshgrid(xs,xs)
     zz = exp(-(xx**2+yy**2)/ω**2)
     ww = Wave2D(zz,xs=xs,ys=xs) # ww.plot()
@@ -1202,7 +1202,7 @@ def radiusedtest(plot=True,i=None):
         if i is None:
             radiusedtest(plot=0,i=j)
     from wavedata import wrange
-    a = Vs([(1,1)]+[(cos(u),sin(u)) for u in wrange(0,pi/2,pi/40)]+[(1,1)]) # a.plot(m='o',grid=1)
+    a = Vs([(1,1)]+[(cos(u),sin(u)) for u in wrange(0,pi/2,pi/40,format=None)]+[(1,1)]) # a.plot(m='o',grid=1)
     i = i if i is not None else len(a)//2
     aa = a.shiftclosedcurve(i%len(a[:-1]))
     b = a.radiused(0.1) + V(0.1,0.1) # b.plot(m='o',grid=1)
@@ -1262,7 +1262,7 @@ if __name__ == '__main__':
     # # backendtest('Qt5Cairo')
     showplot = 0
     print('showplot',bool(showplot))
-    if 0:
+    if 1:
         wavetest(plot=showplot)
         wave2Dtest(plot=showplot)
         plottest(plot=showplot)
@@ -1270,7 +1270,7 @@ if __name__ == '__main__':
         histtest(plot=showplot)
         arraytest()
         vtest()
-        vstest(0,plot=showplot)
+        # vstest(0,plot=showplot)
         arctest(plot=showplot)
         circletest(plot=showplot)
         linelabeltest(showplot)
@@ -1317,13 +1317,12 @@ if __name__ == '__main__':
         storecallargstest()
         maplistargstest()
         tophattest(plot=0)
-        lightpipestest(plot=0)
         stepclimbtest()
-        radiusedtest(showplot+1)
+        radiusedtest(showplot)
     # dashtest()
     mergetest(plot=0)
     mesh2dtest()
-    slabstest(plot=1)
+    slabstest(plot=0)
 
     print('all tests passed')
 

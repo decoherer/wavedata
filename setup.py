@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name="wavedata",
     version="0.1",
-    py_modules=["wavedata", "plot"],
+    py_modules=["wavedata", "plot", "waveclass", "wave2d", "wave3d", "vector", "util"],
     # Additional metadata (optional but recommended)
     author="decoherer",
     author_email="63128649+decoherer@users.noreply.github.com",

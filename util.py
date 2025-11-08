@@ -28,24 +28,20 @@ def maplistargs(func):
     # given f(a,b,c), check if a, b, or c is a list and if so return a list of results, one for each element
     # e.g. maplistargs(f)(a=[0,1,2],b=8,c=[10,11,12]) returns [f(0,8,10),f(1,8,11),f(2,8,12)]
     def wrapper(*args, **kwargs):
-        # Combine args and kwargs into a single dictionary for easier processing
-        arg_names = func.__code__.co_varnames[:func.__code__.co_argcount]
-        call_args = dict(zip(arg_names, args))
-        call_args.update(kwargs)
-        list_args = {k: v for k, v in call_args.items() if isinstance(v, list)}
-        if not list_args:  # No list arguments, call the function directly
+        argnames = func.__code__.co_varnames[:func.__code__.co_argcount] # combine args and kwargs into a single dict for easier processing
+        calldict = dict(zip(argnames, args))
+        calldict.update(kwargs)
+        listargs = {k:v for k,v in calldict.items() if isinstance(v, list)} # only the ones that are lists
+        if not listargs:  # No list arguments, call the function directly
             return func(*args, **kwargs)
-        list_length = None
-        for arg in list_args.values():
-            if list_length is None:
-                list_length = len(arg)
-            elif len(arg) != list_length:
-                raise ValueError("All list arguments must have the same length.")
-        results = []
-        for i in range(list_length):
-            current_args = {k: (v[i] if k in list_args else v) for k, v in call_args.items()}
-            results.append(func(**current_args))
-        return results
+        vals = list(listargs.values())
+        if not all(len(v) == len(vals[0]) for v in vals):
+            raise ValueError("All list arguments must have the same length.")
+        keys    = tuple(listargs.keys())
+        vals    = tuple(listargs[k] for k in keys)
+        nonlist = {k:v for k,v in calldict.items() if k not in listargs}
+        allargs = [{**nonlist, **dict(zip(keys, tup))} for tup in zip(*vals)]
+        return [func(**d) for d in allargs]
     return wrapper
 
 # def maplistargs(func):
@@ -394,7 +390,20 @@ def loadcsv(file,verbose=False,**kwargs):
         print('df[df.columns[0]]',list(df[df.columns[0]]))
         print('df.columns',df.columns)
     return df
+def finvert(f,x0,x1,maxiter=None,xtol=None,verbose=False):
+    import scipy
+    from functools import lru_cache
+    @lru_cache
+    def func(n):
+        y = f(n)
+        if verbose: print('   ',n,'→',y)
+        return y
+    solution = scipy.optimize.root_scalar(func, bracket=[x0,x1], method='brentq', maxiter=maxiter, xtol=xtol)
+    if verbose:
+        print('   iterations:',solution.iterations,'   calls:',solution.function_calls,'   solution:',solution)
+    return solution.root
 def findxgivenf(f,x0,x1,dx=None,maxiter=None,dxonlast=True): # find x0<x<x1 such that f(x)=0, must have f(x0)*f(x1)<0
+    import scipy
     from functools import lru_cache
     @lru_cache
     def func(n):
@@ -501,7 +510,7 @@ def logrounddown(x):
     c = max([z for z in [1,2,5] if z<=x/10**f])
     # print(x,10**f,x/10**f,c,c * 10**f)
     return c * 10**f
-def wrange(x0,x1,dx=1,endround=False,endpoint=True,wave=False,array=True,aslist=False,tol=1e-9,reverse=False):
+def wrange(x0,x1,dx=1,endround=False,endpoint=True,wave=False,array=True,aslist=False,tol=1e-9,reverse=False,format='{:g}'):
     x0,x1 = (round(x0/dx)*dx,round(x1/dx)*dx) if endround else (x0,x1)
     # assert x0<=x1, f"wrange requires x0<x1 x0:{x0:g} x1:{x1:g}"
     if x1<x0:
@@ -509,8 +518,7 @@ def wrange(x0,x1,dx=1,endround=False,endpoint=True,wave=False,array=True,aslist=
     n = int(round((x1-x0)/dx))
     assert abs(x1-x0-n*dx) < tol*dx, f'wrange invalid spacing given tolerance, x1-x0:{x1-x0} dx:{dx} n:{n} x1-x0-n*dx:{abs(x1-x0-n*dx)}'
     # return evenly spaced points between x0 and x1 inclusive, with closest step possible to dx
-    # xs = np.linspace(x0,x1,n+1)
-    xs = np.array([float(f"{x:g}") for x in np.linspace(x0,x1,n+1)])
+    xs = np.array([float(format.format(x)) for x in np.linspace(x0,x1,n+1)]) if format else np.linspace(x0,x1,n+1)
     assert np.abs(xs-np.linspace(x0,x1,n+1)).max()<tol, f'wrange failed to round to tolerance {tol}: {tol}<{xs-np.linspace(x0,x1,n+1)}'
     xs = xs if endpoint else xs[:-1]
     from wavedata import Wave
