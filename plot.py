@@ -2,6 +2,7 @@
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+disablepause = 0
 from matplotlib.font_manager import FontProperties
 import multiprocessing
 import os,time
@@ -90,7 +91,6 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
     ms = markersizelist(waves,ms)
     mf = markerfilllist(waves,mf)
     mew = markeredgewidthlist(waves,mew,lw)
-
     # unexplicit kwargs: font,fontsize,log,loglog,fewerticks,linewidth,legendfontsize
     log,loglog,logx = kwargs.pop('log',False), kwargs.pop('loglog',False), kwargs.pop('logx',False)
     legendfontsize = kwargs.pop('legendfontsize',kwargs.get('fontsize',12))
@@ -100,18 +100,15 @@ def plot(waves=[],image=None,contour=None,contourf=None,colormesh=None,colorbar=
         waves = [w.removenans() for w in waves]
     for w in waves:
         assert not np.any(np.isinf(w.y)), 'plotted waves connot contain inf'
-    # https://matplotlib.org/3.1.1/tutorials/text/mathtext.html#symbols
-    # https://matplotlib.org/3.1.1/api/markers_api.html#module-matplotlib.markers # diamond = [(0,5),(5,0),(0,-5),(-5,0),(0,5)] (size is normalized)
-
     import matplotlib.font_manager as fm
     fm._get_fontconfig_fonts.cache_clear() # Clear the font cache
     fm.fontManager.__init__() # Rebuild the font manager
-
     # matplotlib.use('Qt5Cairo') # plt.rcParams['backend'] = 'Qt5Cairo'
     plt.rcParams['keymap.quit'] = ['ctrl+w','cmd+w','q','escape']
-    plt.rcParams['font.sans-serif'] = plt.rcParams['font.family'] = kwargs.pop('font') if 'font' in kwargs else FontProperties(fname='c:/windows/fonts/arialuni.ttf').get_name() # 'Arial' # 'DejaVu Sans'
-    # print('font.sans-serif',matplotlib.rcParams['font.sans-serif'],'font.family',matplotlib.rcParams['font.family'])
-    # plt.rcParams['axes.facecolor']=plt.rcParams['savefig.facecolor']=plt.rcParams['figure.facecolor']='white'; # plt.rc('font',family='Arial'); 
+    try:
+        plt.rcParams['font.sans-serif'] = plt.rcParams['font.family'] = kwargs.pop('font') if 'font' in kwargs else FontProperties(fname='c:/windows/fonts/arialuni.ttf').get_name() # 'Arial' # 'DejaVu Sans'
+    except:
+        pass
     try:
         plt.style.use('seaborn-v0_8-deep')
     except:
@@ -464,9 +461,12 @@ def zoom_factory(axis, scale_factor=1.4):
     fig = axis.get_figure()
     fig.canvas.mpl_connect('scroll_event', lambda event: zoom_fun(
         event, axis, scale_factor))
-def animate(func,num,xlim=None,ylim=None,lw=1,delay=0,save='',aspect=None,show=True):
+def animate(func,num=None,xlim=None,ylim=None,lw=1,delay=0,save='',aspect=None,show=True):
+    if not callable(func) or num is None:
+        return animate(lambda i: (func[i].x, func[i].y), num=len(func), xlim=xlim, ylim=ylim, lw=lw, delay=delay, save=save, aspect=aspect, show=show)
     from matplotlib.animation import FuncAnimation
-    plt.style.use('seaborn-pastel')
+    print(' '.join(plt.style.available))
+    plt.style.use('seaborn-v0_8-deep')
     fig = plt.figure()
     xlim = xlim if xlim is not None else (func(0)[0].min(),func(0)[0].max())
     ylim = ylim if ylim is not None else (func(0)[1].min(),func(0)[1].max())
@@ -480,7 +480,7 @@ def animate(func,num,xlim=None,ylim=None,lw=1,delay=0,save='',aspect=None,show=T
         line.set_data(x, y)
         return line,
     anim = FuncAnimation(fig, f, frames=num, interval=delay, blit=True) # interval = ms delay
-    if save: anim.save(save+'.gif') #, writer='imagemagick')
+    if save: anim.save('figs/'+save+'.gif') #, writer='imagemagick')
     if show: plt.show()
 
 from math import atan2, degrees

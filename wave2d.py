@@ -274,14 +274,14 @@ class Wave2D(np.ndarray):
         ww[:,:] = 0
         for j,y in enumerate(self.ys):
             xslice = self.atyindex(j)
-            dp = rint(x/xslice.dx())
+            dp = round(int(x/xslice.dx()))
             ww[:,j] = xslice.offsetp(dp,fill)
         return Wave2D(ww,self.xs,self.ys)
         # for i,x in enumerate(self.xs):
         #     # dy = angle*(x-self.xmin)/(self.xmax-self.xmin)
         #     dy = angle*(x-0.5*(self.xmin+self.xmax))
         #     yslice = self.atxindex(i)
-        #     dp = rint(dy/yslice.dx())
+        #     dp = round(int(dy/yslice.dx()))
         #     ww[i,:] = yslice.offsetp(dp) if fast else yslice.offsetx(-dy)
     def untilt(self,n=1,debug=False):
         if n<=0: return (0,0)
@@ -387,7 +387,7 @@ class Wave2D(np.ndarray):
             # dy = angle*(x-self.xmin)/(self.xmax-self.xmin)
             dy = angle*(x-0.5*(self.xmin+self.xmax))
             yslice = self.atxindex(i)
-            dp = rint(dy/yslice.dx())
+            dp = round(int(dy/yslice.dx()))
             ww[i,:] = yslice.offsetp(dp) if fast else yslice.offsetx(-dy)
             if 0==i%100 and not fast: print(i)
         return Wave2D(ww,self.xs,self.ys)
@@ -428,7 +428,7 @@ class Wave2D(np.ndarray):
     def findguide(self,width,filterwidth=None,xprop=True):
         filterwidth = filterwidth if filterwidth is not None else width
         def guidefilter(width,dx):
-            n0 = rint((width+filterwidth)/dx/2)
+            n0 = round(int((width+filterwidth)/dx/2))
             xs = dx*np.linspace(-n0,n0,2*n0+1)
             return Wave( +1*(np.abs(2*xs)<width) + -1*(width<np.abs(2*xs)),xs)
         filter = guidefilter(width,self.dy)
@@ -456,7 +456,7 @@ class Wave2D(np.ndarray):
         #     # dy = angle*(x-self.xmin)/(self.xmax-self.xmin)
         #     dy = angle*(x-0.5*(self.xmin+self.xmax))
         #     yslice = self.atxindex(i)
-        #     dp = rint(dy/yslice.dx())
+        #     dp = round(int(dy/yslice.dx()))
         #     ww[i,:] = yslice.offsetp(dp) if fast else yslice.offsetx(dy)
 
         # ys = [np.mean(np.array(self[i*n:i*n+n])) for i in range(len(self)//n)]
@@ -504,6 +504,8 @@ class Wave2D(np.ndarray):
         # return np.sum(self*ww)**2/np.sum(self**2)/np.sum(ww**2)
         np.seterr(divide='ignore', invalid='ignore')
         return abs(np.sum(self*ww.conj()))**2 / np.sum(abs(self)**2) / np.sum(abs(ww)**2) # https://www.rp-photonics.com/mode_matching.html
+    def amplitudeoverlap(self,ww): # suitable for decomposition
+        return np.sum(self*ww.conj()) / sqrt( np.sum(abs(self)**2) * np.sum(abs(ww)**2) ) # https://www.rp-photonics.com/mode_matching.html
     def deadoverlap(self,w1,w2,w3):
         assert self.bounds()==w1.bounds()==w2.bounds()==w3.bounds() and self.dx==w1.dx==w2.dx==w3.dx and self.dy==w1.dy==w2.dy==w3.dy and self.shape==w1.shape==w2.shape==w3.shape, 'overlap for different grid sizes not implemented'
         # self = mask, 1 everywhere except 0 in dead region
